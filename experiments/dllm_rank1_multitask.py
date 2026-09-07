@@ -599,7 +599,11 @@ def run(args) -> dict:
                 args.seed + 1000 * (stage + 1),
                 teacher=teacher if uses_soft_replay else None,
                 replay_rows=replay,
-                replay_objective=("soft" if uses_soft_replay else "hard" if replay is not None else None),
+                replay_objective=(
+                    "soft" if replay is not None and uses_soft_replay
+                    else "hard" if replay is not None
+                    else None
+                ),
                 constraints=constraints,
             )
             if teacher is not None:
