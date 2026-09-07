@@ -161,6 +161,7 @@ def _validate(args, tasks: list[dict]) -> None:
         "replay_temperature": 0.0,
         "distill_weight": 1.0,
         "distill_temperature": 1.0,
+        "ewc_lambda": 0.0,
         "mask_min": 1e-3,
         "mask_max": 1.0,
         "lr": 5e-5,
@@ -334,6 +335,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--replay-temperature", type=float, default=0.0)
     parser.add_argument("--distill-weight", type=float, default=1.0)
     parser.add_argument("--distill-temperature", type=float, default=1.0)
+    parser.add_argument("--ewc-lambda", type=float, default=0.0)
     parser.add_argument("--device", default="cuda")
     parser.add_argument("--formal", action="store_true")
     parser.add_argument("--self-check", action="store_true")
