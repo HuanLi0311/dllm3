@@ -30,16 +30,14 @@ def _box(ax, x, y, width, height, face, edge, heading, lines):
     ax.text(x + 0.024, y + height - 0.055, heading, color=edge, fontsize=9,
             fontweight="bold", va="top")
     ax.text(x + width / 2, y + height / 2 - 0.018, lines, color=INK,
-            fontsize=11, va="center", ha="center", linespacing=1.35)
+            fontsize=10, va="center", ha="center", linespacing=1.35)
 
 
-def _arrow(ax, start, end, label):
+def _arrow(ax, start, end):
     ax.annotate("", xy=end, xytext=start, arrowprops={
         "arrowstyle": "-|>", "color": MUTED, "lw": 1.7,
         "shrinkA": 2, "shrinkB": 2, "mutation_scale": 13,
     })
-    ax.text((start[0] + end[0]) / 2, start[1] + 0.055, label,
-            color=MUTED, fontsize=8.5, ha="center", va="bottom")
 
 
 def overview(output: Path) -> None:
@@ -48,7 +46,7 @@ def overview(output: Path) -> None:
     plt.rcParams.update({"font.family": "DejaVu Sans", "mathtext.fontset": "dejavusans"})
     fig, ax = plt.subplots(figsize=(10.5, 3.05))
     ax.set_xlim(0, 1)
-    ax.set_ylim(0.14, 0.86)
+    ax.set_ylim(0.13, 0.87)
     ax.axis("off")
 
     _box(ax, 0.015, 0.25, 0.18, 0.50, PALE_BLUE, BLUE,
@@ -77,9 +75,9 @@ def overview(output: Path) -> None:
     _box(ax, 0.80, 0.25, 0.185, 0.50, "#F7EFF5", PINK,
          "UPDATE", r"$\mathcal{L}_{\mathrm{new}}+\beta\mathcal{L}_{\mathrm{CAGD}}$" + "\n\npreserve old\nconditional behavior")
 
-    _arrow(ax, (0.197, 0.50), (0.243, 0.50), "anchors")
-    _arrow(ax, (0.437, 0.50), (0.483, 0.50), "states")
-    _arrow(ax, (0.752, 0.50), (0.798, 0.50), "soft targets")
+    _arrow(ax, (0.197, 0.50), (0.243, 0.50))
+    _arrow(ax, (0.437, 0.50), (0.483, 0.50))
+    _arrow(ax, (0.752, 0.50), (0.798, 0.50))
 
     output.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(output, bbox_inches="tight", pad_inches=0.015, facecolor="white")
