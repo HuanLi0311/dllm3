@@ -1,7 +1,8 @@
 # CAGD natural-task protocol
 
 Status: frozen on 2026-09-07 after implementation smoke tests and before any
-formal natural-task run.
+retained formal natural-task run.  Two initial processes were stopped before
+writing output when a hard-replay teacher-lifetime inefficiency was found.
 
 ## Question and scope
 
@@ -73,7 +74,7 @@ backend and seed.  Later digests may differ because the learners have diverged.
 - Generate at most 96 new tokens in batches of 4; maximum full sequence length
   is 256.  Evaluation batch size is 2.
 - Runner SHA-256:
-  `a45839488e8f848069bdea0da5ecddb975305cd1e909ae268cce891377693dd3`.
+  `4a8be25e92865127c46ca12c0359de1692f866692849581d23da4c92aba8feea`.
 
 ## Endpoints and interpretation
 

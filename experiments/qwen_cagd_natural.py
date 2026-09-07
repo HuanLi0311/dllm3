@@ -259,12 +259,14 @@ def run(args) -> dict:
         replay_rows = []
         anchor_manifest = []
         if stage and args.method != "seq":
-            teacher = copy.deepcopy(model).eval()
-            for parameter in teacher.parameters():
-                parameter.requires_grad_(False)
+            if args.method == "cagd":
+                teacher = copy.deepcopy(model).eval()
+                for parameter in teacher.parameters():
+                    parameter.requires_grad_(False)
             anchors, anchor_manifest = _anchors(tasks, stage, args.replay_per_task)
             replay_rows = _generate_replay(
-                teacher, anchors, pad_id, device, args.generation_batch_size, args.max_new_tokens
+                teacher if teacher is not None else model,
+                anchors, pad_id, device, args.generation_batch_size, args.max_new_tokens,
             )
         training = _train(
             model, teacher if args.method == "cagd" else None, task["train"], replay_rows,
