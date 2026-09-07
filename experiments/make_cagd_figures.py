@@ -185,7 +185,7 @@ def result_summary(output: Path, factual: dict, fresh: dict,
     )
     ax = axes[2]
     y = list(range(len(rows)))
-    ax.axvspan(-1.0, 0, color=PALE_BLUE, zorder=0)
+    natural_means = []
     for yi, (_, backend, contrast_name) in zip(y, rows):
         record = natural["paired"][backend][contrast_name]
         for key, color, marker, offset in (
@@ -193,9 +193,11 @@ def result_summary(output: Path, factual: dict, fresh: dict,
             ("past_task_forgetting", BLUE, "s", 0.10),
         ):
             item = record[key]
+            natural_means.append(item["mean"])
             ax.errorbar(item["mean"], yi + offset, xerr=item["sem"],
                         fmt=marker, ms=5.0, lw=1.4, capsize=2.3,
                         color=color, zorder=3)
+    ax.axvspan(min(natural_means) - 0.2, 0, color=PALE_BLUE, zorder=0)
     ax.axvline(0, color="#9AA8B2", lw=1)
     ax.set_yticks(y, [name for name, _, _ in rows])
     ax.invert_yaxis()
@@ -204,7 +206,7 @@ def result_summary(output: Path, factual: dict, fresh: dict,
                  color=INK, pad=8)
     ax.plot([], [], "o", color=PINK, label="Final average")
     ax.plot([], [], "s", color=BLUE, label="Past forgetting")
-    ax.legend(frameon=False, fontsize=7.4, loc="lower right",
+    ax.legend(frameon=False, fontsize=7.4, loc="upper left",
               handletextpad=0.4, borderpad=0.2)
 
     for ax in axes:
@@ -212,11 +214,9 @@ def result_summary(output: Path, factual: dict, fresh: dict,
         ax.spines["bottom"].set_color("#B9C3CA")
         ax.grid(axis="x", color="#DCE3E8", lw=0.7, zorder=0)
         ax.tick_params(axis="y", length=0)
-        ax.text(0.01, -0.25, "← lower is better", transform=ax.transAxes,
-                color=MUTED, fontsize=7.2, ha="left")
 
     output.parent.mkdir(parents=True, exist_ok=True)
-    fig.subplots_adjust(left=0.085, right=0.995, top=0.88, bottom=0.25,
+    fig.subplots_adjust(left=0.085, right=0.995, top=0.88, bottom=0.20,
                         wspace=0.48)
     fig.savefig(output, bbox_inches="tight", pad_inches=0.015, facecolor="white")
     fig.savefig(output.with_suffix(".png"), dpi=240, bbox_inches="tight",
