@@ -108,7 +108,7 @@ def result_summary(output: Path, factual: dict, fresh: dict,
 
     plt.rcParams.update({
         "font.family": "DejaVu Sans",
-        "font.size": 8.2,
+        "font.size": 6.8,
         "pdf.fonttype": 42,
         "ps.fonttype": 42,
         "axes.labelcolor": INK,
@@ -116,7 +116,7 @@ def result_summary(output: Path, factual: dict, fresh: dict,
         "ytick.color": INK,
     })
     fig, axes = plt.subplots(
-        1, 3, figsize=(11.4, 3.15),
+        1, 3, figsize=(7.4, 2.55),
         gridspec_kw={"width_ratios": [1.12, 0.90, 1.18]},
     )
 
@@ -211,7 +211,7 @@ def result_summary(output: Path, factual: dict, fresh: dict,
                  color=INK, pad=8)
     ax.plot([], [], "o", color=PINK, label="Final average")
     ax.plot([], [], "s", color=BLUE, label="Past forgetting")
-    ax.legend(frameon=False, fontsize=7.4, loc="upper left",
+    ax.legend(frameon=False, fontsize=6.2, loc="upper left",
               handletextpad=0.4, borderpad=0.2)
 
     for ax in axes:
@@ -221,8 +221,8 @@ def result_summary(output: Path, factual: dict, fresh: dict,
         ax.tick_params(axis="y", length=0)
 
     output.parent.mkdir(parents=True, exist_ok=True)
-    fig.subplots_adjust(left=0.085, right=0.995, top=0.88, bottom=0.20,
-                        wspace=0.48)
+    fig.subplots_adjust(left=0.10, right=0.995, top=0.86, bottom=0.22,
+                        wspace=0.56)
     fig.savefig(output, bbox_inches="tight", pad_inches=0.015, facecolor="white")
     fig.savefig(output.with_suffix(".png"), dpi=240, bbox_inches="tight",
                 pad_inches=0.015, facecolor="white")
