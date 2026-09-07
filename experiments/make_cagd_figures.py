@@ -47,7 +47,10 @@ def _arrow(ax, start, end):
 def overview(output: Path) -> None:
     import matplotlib.pyplot as plt
 
-    plt.rcParams.update({"font.family": "DejaVu Sans", "mathtext.fontset": "dejavusans"})
+    plt.rcParams.update({
+        "font.family": "DejaVu Sans", "mathtext.fontset": "dejavusans",
+        "pdf.fonttype": 42, "ps.fonttype": 42,
+    })
     fig, ax = plt.subplots(figsize=(10.5, 3.05))
     ax.set_xlim(0, 1)
     ax.set_ylim(0.13, 0.87)
@@ -106,6 +109,8 @@ def result_summary(output: Path, factual: dict, fresh: dict,
     plt.rcParams.update({
         "font.family": "DejaVu Sans",
         "font.size": 8.2,
+        "pdf.fonttype": 42,
+        "ps.fonttype": 42,
         "axes.labelcolor": INK,
         "xtick.color": MUTED,
         "ytick.color": INK,
