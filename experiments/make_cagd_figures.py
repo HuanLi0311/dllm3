@@ -48,7 +48,7 @@ def overview(output: Path) -> None:
     plt.rcParams.update({"font.family": "DejaVu Sans", "mathtext.fontset": "dejavusans"})
     fig, ax = plt.subplots(figsize=(10.5, 3.05))
     ax.set_xlim(0, 1)
-    ax.set_ylim(0, 1)
+    ax.set_ylim(0.14, 0.86)
     ax.axis("off")
 
     _box(ax, 0.015, 0.25, 0.18, 0.50, PALE_BLUE, BLUE,
@@ -62,7 +62,7 @@ def overview(output: Path) -> None:
         boxstyle="round,pad=0.012,rounding_size=0.018",
         linewidth=1.6, edgecolor=ORANGE, facecolor=PALE_ORANGE,
     ))
-    ax.text(0.509, 0.785, "MATCH LOCAL DISTRIBUTIONS", color=ORANGE,
+    ax.text(0.509, 0.785, "MATCH", color=ORANGE,
             fontsize=9, fontweight="bold", va="top")
     ax.text(0.6175, 0.625, "AR prefixes", color=INK, fontsize=10.5,
             fontweight="bold", ha="center")
@@ -71,7 +71,7 @@ def overview(output: Path) -> None:
     ax.text(0.6175, 0.365, "Diffusion states", color=INK, fontsize=10.5,
             fontweight="bold", ha="center")
     ax.text(0.6175, 0.275, "kernel / denoiser KL", color=MUTED, fontsize=9.5, ha="center")
-    ax.text(0.6175, 0.105, "SMDM: masked teacher completions", color=ORANGE,
+    ax.text(0.6175, 0.190, "SMDM: masked teacher completions", color=ORANGE,
             fontsize=8.2, ha="center")
 
     _box(ax, 0.80, 0.25, 0.185, 0.50, "#F7EFF5", PINK,
