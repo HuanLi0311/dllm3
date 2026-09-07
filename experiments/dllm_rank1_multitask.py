@@ -582,11 +582,12 @@ def run(args) -> dict:
             teacher = replay = None
             replay_manifest = []
             if stage and uses_generated_replay:
-                teacher = load_model(args, device)
-                teacher.load_state_dict(model.state_dict())
-                teacher.eval()
-                for parameter in teacher.parameters():
-                    parameter.requires_grad_(False)
+                if uses_soft_replay:
+                    teacher = load_model(args, device)
+                    teacher.load_state_dict(model.state_dict())
+                    teacher.eval()
+                    for parameter in teacher.parameters():
+                        parameter.requires_grad_(False)
                 prompts, replay_manifest = _replay_prompts(tasks, stage, args.replay_per_task)
                 replay = _generate_replay(model, tokenizer, prompts, device, args)
             elif stage and uses_real_replay:
@@ -736,7 +737,7 @@ def _self_check() -> None:
 
     for task in mock_tasks:
         for row in task["train_raw"]:
-            row["answer"] = "answer"
+            row["answer"] = " answer"
     real_rows, real_manifest = _real_replay_rows(mock_tasks, 2, 64, _Tokenizer(), 128)
     assert len(real_rows) == 128
     assert [item["fact_counts"] for item in real_manifest] == [
