@@ -48,7 +48,9 @@ FRESH_TASKS = (("d2p", 24), ("p2d", 26), ("d2p", 28))
 FINAL_FORWARD_METHODS = {"seq", "gd", "rank1", "diagonal", "rank1_gd", "diag_gd", "joint"}
 FINAL_REVERSE_METHODS = {"seq", "gd", "rank1_gd", "diag_gd"}
 FRESH_METHODS = {"seq", "gd", "rank1_gd", "diag_gd"}
+CAGD_METHODS = {"cagd", "hard_replay", "real_replay"}
 VALIDATION_SUMMARY_SHA256 = "b621509724d73059362bd095d9e67a45cdc690da68d84d0b0a37b2e33dc610e4"
+CAGD_PROTOCOL = ROOT / "report/cagd_component_protocol.md"
 
 
 def _utc_now() -> str:
@@ -357,11 +359,14 @@ def _summary(stages: list[dict], tasks: list[dict]) -> dict:
 
 
 def _metadata(args, tasks) -> dict:
-    locked = args.final_protocol or args.fresh_protocol
+    legacy_locked = args.final_protocol or args.fresh_protocol
+    cagd_locked = args.cagd_protocol or args.cagd_fresh_protocol
     metadata = {
         "protocol": (
             "r16_native_mask_v1" if args.final_protocol
             else "r16_fresh_facts_v1" if args.fresh_protocol
+            else "cagd_component_main_v1" if args.cagd_protocol
+            else "cagd_component_fresh_v1" if args.cagd_fresh_protocol
             else "development"
         ),
         "mask_sampling": "independent_bernoulli_allow_empty_v1",
@@ -422,7 +427,12 @@ def _metadata(args, tasks) -> dict:
         "seed": args.seed,
         "generation_seed": args.generation_seed,
     }
-    if locked:
+    if cagd_locked:
+        metadata.update({
+            "protocol_document": str(CAGD_PROTOCOL.resolve()),
+            "protocol_document_sha256": _sha256(CAGD_PROTOCOL),
+        })
+    if legacy_locked:
         validation = json.loads(args.validation_summary.read_text())
         metadata.update({
             "validation_summary": str(args.validation_summary.resolve()),
@@ -436,9 +446,16 @@ def _metadata(args, tasks) -> dict:
 
 
 def _validate_locked_protocol(args, tasks, selected_lambdas=None) -> None:
-    if args.final_protocol == args.fresh_protocol:
+    modes = (
+        args.final_protocol,
+        args.fresh_protocol,
+        args.cagd_protocol,
+        args.cagd_fresh_protocol,
+    )
+    if sum(modes) != 1:
         raise ValueError("select exactly one locked protocol")
-    task_spec = FINAL_TASKS if args.final_protocol else FRESH_TASKS
+    fresh = args.fresh_protocol or args.cagd_fresh_protocol
+    task_spec = FRESH_TASKS if fresh else FINAL_TASKS
     expected = list(task_spec if args.order == "forward" else reversed(task_spec))
     actual = [(task["direction"], task["group_start"]) for task in tasks]
     errors = []
@@ -446,9 +463,9 @@ def _validate_locked_protocol(args, tasks, selected_lambdas=None) -> None:
         errors.append(f"task sequence {actual!r} != {expected!r}")
     expected_values = {
         "start_direction": "d2p",
-        "group_start": 8 if args.final_protocol else 24,
-        "tasks": 4 if args.final_protocol else 3,
-        "group_count": 4 if args.final_protocol else 2,
+        "group_start": 24 if fresh else 8,
+        "tasks": 3 if fresh else 4,
+        "group_count": 2 if fresh else 4,
         "fisher_per_fact": 10, "steps_per_task": 1000, "batch_size": 4,
         "eval_batch_size": 4, "eval_mc_samples": 32, "replay_per_task": 64,
         "replay_steps": 32, "replay_length": 52, "replay_cfg": 0.8,
@@ -462,7 +479,8 @@ def _validate_locked_protocol(args, tasks, selected_lambdas=None) -> None:
     for name, expected_value in expected_values.items():
         if getattr(args, name) != expected_value:
             errors.append(f"{name}={getattr(args, name)!r} != {expected_value!r}")
-    allowed = (
+    cagd = args.cagd_protocol or args.cagd_fresh_protocol
+    allowed = CAGD_METHODS if cagd else (
         FINAL_FORWARD_METHODS if args.final_protocol and args.order == "forward"
         else FINAL_REVERSE_METHODS if args.final_protocol
         else FRESH_METHODS
@@ -473,7 +491,7 @@ def _validate_locked_protocol(args, tasks, selected_lambdas=None) -> None:
         errors.append(f"unexpected seed {args.seed}")
     if args.generation_seed != args.seed:
         errors.append(f"generation_seed={args.generation_seed} != seed={args.seed}")
-    if selected_lambdas is None:
+    if not cagd and selected_lambdas is None:
         if _sha256(args.validation_summary) != VALIDATION_SUMMARY_SHA256:
             raise ValueError("validation summary does not match the frozen R16 artifact")
         validation = json.loads(args.validation_summary.read_text())
@@ -485,7 +503,7 @@ def _validate_locked_protocol(args, tasks, selected_lambdas=None) -> None:
         }
         if any(value not in (1e3, 1e4, 1e5, 1e6, 1e7) for value in selected_lambdas.values()):
             raise ValueError("selected lambda is outside the audited validation grid")
-    expected_lambda = (
+    expected_lambda = 0.0 if cagd else (
         selected_lambdas["rank1_gd"] if args.method in ("rank1", "rank1_gd")
         else selected_lambdas["diag_gd"] if args.method in ("diagonal", "diag_gd")
         else 0.0
@@ -517,7 +535,7 @@ def run(args) -> dict:
     tokenizer = AutoTokenizer.from_pretrained(args.tokenizer, local_files_only=True, use_fast=True)
     pad_id = int(tokenizer.eos_token_id)
     tasks = _load_tasks(args, tokenizer)
-    if args.final_protocol or args.fresh_protocol:
+    if args.final_protocol or args.fresh_protocol or args.cagd_protocol or args.cagd_fresh_protocol:
         _validate_locked_protocol(args, tasks)
     source_sha256 = _sha256(Path(__file__))
     dependency_sha256 = _dependency_hashes()
@@ -709,6 +727,7 @@ def _self_check() -> None:
         distill_weight=1.0, distill_temperature=1.0, ewc_lambda=0.0, lr=5e-5,
         clip=1.0, method="gd", seed=3407, generation_seed=3407,
         final_protocol=True, fresh_protocol=False,
+        cagd_protocol=False, cagd_fresh_protocol=False,
     )
     mock_tasks = []
     for spec in specs:
@@ -774,6 +793,11 @@ def _self_check() -> None:
     protocol_args.method = "rank1_gd"
     protocol_args.ewc_lambda = selected["rank1_gd"]
     _validate_locked_protocol(protocol_args, fresh_tasks, selected)
+    protocol_args.fresh_protocol = False
+    protocol_args.cagd_fresh_protocol = True
+    protocol_args.method = "hard_replay"
+    protocol_args.ewc_lambda = 0.0
+    _validate_locked_protocol(protocol_args, fresh_tasks)
     print(json.dumps({"self_check": "ok"}))
 
 
@@ -828,6 +852,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--self-check", action="store_true")
     parser.add_argument("--final-protocol", action="store_true")
     parser.add_argument("--fresh-protocol", action="store_true")
+    parser.add_argument("--cagd-protocol", action="store_true")
+    parser.add_argument("--cagd-fresh-protocol", action="store_true")
     parser.add_argument(
         "--validation-summary", type=Path,
         default=ROOT / "runs/r16_native_mask/validation_summary.json",
@@ -839,8 +865,8 @@ def parse_args() -> argparse.Namespace:
         parser.error("--output is required")
     if args.generation_seed is None:
         args.generation_seed = args.seed
-    if args.final_protocol and args.fresh_protocol:
-        parser.error("--final-protocol and --fresh-protocol are mutually exclusive")
+    if sum((args.final_protocol, args.fresh_protocol, args.cagd_protocol, args.cagd_fresh_protocol)) > 1:
+        parser.error("protocol flags are mutually exclusive")
     if args.tasks < 2 or args.group_count < 1 or args.fisher_per_fact < 1:
         parser.error("tasks >= 2, group_count >= 1, and fisher_per_fact >= 1 are required")
     return args
