@@ -59,7 +59,7 @@ backend and seed.  Later digests may differ because the learners have diverged.
 - Evaluation uses 16 fixed Monte Carlo mask draws per held-out row and batch
   size 2.
 - Runner SHA-256:
-  `eb2e88ceb8de3aec433187c367b3a73fe534260a8f8504be3b483e87610994cc`.
+  `47b094a3e06ea92a534680a3ca3d6dd0250647c1085ecfadad732567ba3450a7`.
 
 ## Autoregressive backend
 

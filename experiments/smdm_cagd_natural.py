@@ -19,6 +19,9 @@ import torch
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
+EXPERIMENTS = ROOT / "experiments"
+if str(EXPERIMENTS) not in sys.path:
+    sys.path.insert(0, str(EXPERIMENTS))
 
 from continual_benchmark import encode_benchmark_rows  # noqa: E402
 from continual_mdm import answer_token_accuracy, load_model, set_seed, trainable_parameters  # noqa: E402
