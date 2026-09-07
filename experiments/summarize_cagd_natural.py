@@ -16,10 +16,10 @@ METHODS = ("seq", "cagd", "hard_replay")
 SEEDS = (3407, 3408, 3409)
 TAGS = {"smdm": "cagd_natural_smdm_v1", "qwen": "cagd_natural_qwen_v1"}
 RUNNER_SHA256 = {
-    "smdm": "eb2e88ceb8de3aec433187c367b3a73fe534260a8f8504be3b483e87610994cc",
+    "smdm": "47b094a3e06ea92a534680a3ca3d6dd0250647c1085ecfadad732567ba3450a7",
     "qwen": "a45839488e8f848069bdea0da5ecddb975305cd1e909ae268cce891377693dd3",
 }
-PROTOCOL_SHA256 = "299c9e15cf6ac8873a7922bb93b4c0711f88584f3b06feb1a19ab31d42466f89"
+PROTOCOL_SHA256 = "b5ba8276b5302156274caaa89ea31cfef02b56c1c186104a46534199ae27f176"
 DATA_SHA256 = "a3847b527b517a6a778d85c17ad6a597e66c0f27f4137dde25da496092e219a0"
 MANIFEST_SHA256 = "ce47eb566d6115e95f31a5379768c3d3c42b005ad3b4a9705fee42c867a437fa"
 TASKS = ["closed_qa", "summarization", "creative_writing"]
