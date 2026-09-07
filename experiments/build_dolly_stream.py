@@ -25,6 +25,10 @@ def _digest(value) -> str:
     return hashlib.sha256(_canonical(value)).hexdigest()
 
 
+def _file_digest(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
 def _format_prompt(row: dict) -> str:
     prompt = f"Instruction: {row['instruction'].strip()}"
     context = row.get("context", "").strip()
@@ -120,12 +124,15 @@ def build(args) -> dict:
         raise ValueError("selected prompts are not globally disjoint")
 
     jsonl = "".join(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n" for row in rows)
+    selected_source_indices = {row["source_index"] for row in rows}
     manifest = {
         "schema_version": 1,
         "status": "ok",
         "dataset": DATASET,
         "dataset_revision": REVISION,
+        "dataset_fingerprint": source._fingerprint,
         "license": "CC BY-SA 3.0",
+        "builder_sha256": _file_digest(Path(__file__)),
         "selection_seed": args.seed,
         "task_order": list(TASKS),
         "train_per_task": args.train_per_task,
@@ -144,7 +151,7 @@ def build(args) -> dict:
         "prompt_disjoint": len(prompts) == len(set(prompts)),
         "selected_rows_sha256": _digest(rows),
         "selected_source_sha256": _digest([
-            record for record in source_records if record["source_index"] in {row["source_index"] for row in rows}
+            record for record in source_records if record["source_index"] in selected_source_indices
         ]),
         "per_split_sha256": {
             f"{task}:{split}": _digest([
