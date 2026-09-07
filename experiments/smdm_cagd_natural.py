@@ -134,6 +134,8 @@ def _validate(args, tasks: list[dict]) -> None:
         raise ValueError("formal method or seed is outside the protocol")
     manifest = json.loads(args.manifest.read_text())
     errors = []
+    if args.order != "forward":
+        errors.append("the formal natural stream uses the predeclared forward order")
     expected = {
         "dataset_revision": "bdd27f4d94b9c1f951818a7da7fd7aeea5dbff1a",
         "selection_seed": 20260907,

@@ -185,6 +185,8 @@ def _summarize(stages: list[dict], tasks: list[dict]) -> dict:
 def _validate(args, tasks: list[dict]) -> None:
     manifest = json.loads(args.manifest.read_text())
     errors = []
+    if args.order != "forward":
+        errors.append("the formal natural stream uses the predeclared forward order")
     expected_manifest = {
         "dataset_revision": "bdd27f4d94b9c1f951818a7da7fd7aeea5dbff1a",
         "selection_seed": 20260907,
