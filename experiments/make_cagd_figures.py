@@ -52,9 +52,9 @@ def overview(output: Path) -> None:
     ax.axis("off")
 
     _box(ax, 0.015, 0.25, 0.18, 0.50, PALE_BLUE, BLUE,
-         "RETAIN", "Condition anchors\n$c_1,\ldots,c_m$\n\nno old outputs")
+         "RETAIN", "Condition anchors\n" + r"$c_1,\ldots,c_m$" + "\n\nno old outputs")
     _box(ax, 0.245, 0.25, 0.19, 0.50, PALE_TEAL, TEAL,
-         "RECONSTRUCT", "Frozen teacher\ncompletion $\widetilde y$\nand relevant states")
+         "RECONSTRUCT", "Frozen teacher\ncompletion " + r"$\widetilde y$" + "\nand relevant states")
 
     from matplotlib.patches import FancyBboxPatch
     ax.add_patch(FancyBboxPatch(
@@ -75,7 +75,7 @@ def overview(output: Path) -> None:
             fontsize=8.2, ha="center")
 
     _box(ax, 0.80, 0.25, 0.185, 0.50, "#F7EFF5", PINK,
-         "UPDATE", "$\mathcal L_{new}+\beta\mathcal L_{CAGD}$\n\npreserve old\nconditional behavior")
+         "UPDATE", r"$\mathcal{L}_{\mathrm{new}}+\beta\mathcal{L}_{\mathrm{CAGD}}$" + "\n\npreserve old\nconditional behavior")
 
     _arrow(ax, (0.197, 0.50), (0.243, 0.50), "anchors")
     _arrow(ax, (0.437, 0.50), (0.483, 0.50), "states")
