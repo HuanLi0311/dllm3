@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Locked DLLM continual-learning studies with rank-1/diagonal EWC and replay."""
+"""DLLM continual learning with soft, hard-generated, and real replay."""
 
 from __future__ import annotations
 
@@ -173,6 +173,7 @@ def _train_stage(
     seed,
     teacher=None,
     replay_rows=None,
+    replay_objective=None,
     constraints=None,
 ) -> dict:
     started = time.monotonic()
@@ -181,7 +182,13 @@ def _train_stage(
     replay_rng = random.Random(seed + 303)
     current_generator = torch.Generator(device=device).manual_seed(seed + 101)
     replay_generator = torch.Generator(device=device).manual_seed(seed + 202)
-    totals = {"current": 0.0, "distill": 0.0, "penalty": 0.0, "total": 0.0}
+    totals = {
+        "current": 0.0,
+        "distill": 0.0,
+        "hard_replay": 0.0,
+        "penalty": 0.0,
+        "total": 0.0,
+    }
     penalty_max = 0.0
     gradient_norm_max = 0.0
     clipped_steps = 0
@@ -193,12 +200,25 @@ def _train_stage(
             model, batch, pad_id, device, current_generator, args.mask_min, args.mask_max
         ).mean()
         distill = torch.zeros((), device=device)
-        if teacher is not None:
+        hard_replay = torch.zeros((), device=device)
+        if replay_objective == "soft":
+            if teacher is None or not replay_rows:
+                raise ValueError("soft replay requires a teacher and replay rows")
             replay_batch = [replay_rows[replay_rng.randrange(len(replay_rows))] for _ in range(args.batch_size)]
             distill = _distillation_losses(
                 model, teacher, replay_batch, pad_id, device, replay_generator,
                 args.mask_min, args.mask_max, args.distill_temperature,
             ).mean()
+        elif replay_objective == "hard":
+            if not replay_rows:
+                raise ValueError("hard replay requires replay rows")
+            replay_batch = [replay_rows[replay_rng.randrange(len(replay_rows))] for _ in range(args.batch_size)]
+            hard_replay = _sft_losses(
+                model, replay_batch, pad_id, device, replay_generator,
+                args.mask_min, args.mask_max,
+            ).mean()
+        elif replay_objective is not None:
+            raise ValueError(f"unknown replay objective: {replay_objective}")
         penalty = torch.zeros((), device=device)
         for constraint in constraints:
             if constraint["kind"] == "rank1":
@@ -208,7 +228,7 @@ def _train_stage(
                 penalty = penalty + _diagonal_penalty(
                     parameters, constraint["reference"], constraint["diagonal"]
                 )
-        total = current + args.distill_weight * distill + args.ewc_lambda * penalty
+        total = current + args.distill_weight * (distill + hard_replay) + args.ewc_lambda * penalty
         optimizer.zero_grad(set_to_none=True)
         total.backward()
         gradient_norm = float(torch.nn.utils.clip_grad_norm_(parameters, args.clip))
@@ -217,6 +237,7 @@ def _train_stage(
         values = {
             "current": float(current.detach().cpu()),
             "distill": float(distill.detach().cpu()),
+            "hard_replay": float(hard_replay.detach().cpu()),
             "penalty": float(penalty.detach().cpu()),
             "total": float(total.detach().cpu()),
         }
@@ -227,7 +248,8 @@ def _train_stage(
         if step == 0 or step + 1 == args.steps_per_task or (step + 1) % 100 == 0:
             print(
                 f"stage_step={step + 1}/{args.steps_per_task} current={values['current']:.5f} "
-                f"distill={values['distill']:.5f} penalty={values['penalty']:.6g}",
+                f"distill={values['distill']:.5f} hard_replay={values['hard_replay']:.5f} "
+                f"penalty={values['penalty']:.6g}",
                 flush=True,
             )
     return {
@@ -239,6 +261,9 @@ def _train_stage(
         **{f"{key}_mean": value / args.steps_per_task for key, value in totals.items()},
         "ewc_loss_mean": args.ewc_lambda * totals["penalty"] / args.steps_per_task,
         "distill_loss_weighted_mean": args.distill_weight * totals["distill"] / args.steps_per_task,
+        "hard_replay_loss_weighted_mean": (
+            args.distill_weight * totals["hard_replay"] / args.steps_per_task
+        ),
     }
 
 
@@ -270,6 +295,39 @@ def _replay_prompts(tasks: list[dict], seen: int, per_task: int) -> tuple[list[s
             "per_fact_prompt_sha256": per_fact_prompt_sha256,
         })
     return prompts, manifest
+
+
+def _real_replay_rows(
+    tasks: list[dict], seen: int, per_task: int, tokenizer, max_length: int
+) -> tuple[list[dict], list[dict]]:
+    rows = []
+    manifest = []
+    for task in tasks[:seen]:
+        pools = {}
+        for row in task["train_raw"]:
+            pools.setdefault(int(row["fact_id"]), []).append(row)
+        fact_ids = sorted(pools)
+        quotient, remainder = divmod(per_task, len(fact_ids))
+        selected = []
+        for index, fact_id in enumerate(fact_ids):
+            count = quotient + (index < remainder)
+            pool = pools[fact_id]
+            selected.extend(pool[item % len(pool)] for item in range(count))
+        encoded = encode_benchmark_rows(selected, tokenizer, max_length)
+        if len(encoded) != len(selected):
+            raise ValueError("real replay rows were truncated by max_length")
+        rows.extend(encoded)
+        manifest.append({
+            "task": task["name"],
+            "count": len(selected),
+            "fact_counts": _fact_counts(selected),
+            "prompt_sha256": _records_sha256([row["prompt"] for row in selected]),
+            "selection_sha256": _records_sha256([
+                {"fact_id": row["fact_id"], "prompt": row["prompt"]} for row in selected
+            ]),
+            "answer_sha256": _records_sha256([row["answer"] for row in selected]),
+        })
+    return rows, manifest
 
 
 def _summary(stages: list[dict], tasks: list[dict]) -> dict:
@@ -349,6 +407,16 @@ def _metadata(args, tasks) -> dict:
         "mask_max": args.mask_max,
         "replay_per_task": args.replay_per_task,
         "replay_sampling": "balanced_by_fact_in_source_order",
+        "replay_source": (
+            "teacher_generated" if args.method in ("gd", "cagd", "hard_replay", "rank1_gd", "diag_gd")
+            else "stored_real" if args.method == "real_replay"
+            else "none"
+        ),
+        "replay_objective": (
+            "teacher_kl" if args.method in ("gd", "cagd", "rank1_gd", "diag_gd")
+            else "hard_cross_entropy" if args.method in ("hard_replay", "real_replay")
+            else "none"
+        ),
         "distill_weight": args.distill_weight,
         "ewc_lambda": args.ewc_lambda,
         "seed": args.seed,
@@ -501,7 +569,9 @@ def run(args) -> dict:
             },
         }
     else:
-        uses_gd = args.method in ("gd", "rank1_gd", "diag_gd")
+        uses_soft_replay = args.method in ("gd", "cagd", "rank1_gd", "diag_gd")
+        uses_generated_replay = uses_soft_replay or args.method == "hard_replay"
+        uses_real_replay = args.method == "real_replay"
         ewc_kind = "rank1" if args.method in ("rank1", "rank1_gd") else (
             "diagonal" if args.method in ("diagonal", "diag_gd") else None
         )
@@ -511,7 +581,7 @@ def run(args) -> dict:
             print(f"stage={stage + 1}/{len(tasks)} task={task['name']}", flush=True)
             teacher = replay = None
             replay_manifest = []
-            if stage and uses_gd:
+            if stage and uses_generated_replay:
                 teacher = load_model(args, device)
                 teacher.load_state_dict(model.state_dict())
                 teacher.eval()
@@ -519,9 +589,16 @@ def run(args) -> dict:
                     parameter.requires_grad_(False)
                 prompts, replay_manifest = _replay_prompts(tasks, stage, args.replay_per_task)
                 replay = _generate_replay(model, tokenizer, prompts, device, args)
+            elif stage and uses_real_replay:
+                replay, replay_manifest = _real_replay_rows(
+                    tasks, stage, args.replay_per_task, tokenizer, args.max_length
+                )
             training = _train_stage(
                 model, task["train"], parameters, pad_id, device, args,
-                args.seed + 1000 * (stage + 1), teacher=teacher, replay_rows=replay,
+                args.seed + 1000 * (stage + 1),
+                teacher=teacher if uses_soft_replay else None,
+                replay_rows=replay,
+                replay_objective=("soft" if uses_soft_replay else "hard" if replay is not None else None),
                 constraints=constraints,
             )
             if teacher is not None:
@@ -650,6 +727,22 @@ def _self_check() -> None:
         {str(fact): 16 for fact in range(12, 16)},
     ]
     assert all(len(item["selection_sha256"]) == 64 for item in replay_manifest)
+    class _Tokenizer:
+        eos_token_id = 0
+
+        def __call__(self, text, add_special_tokens=True):
+            del add_special_tokens
+            return {"input_ids": list(range(1, len(text.split()) + 2))}
+
+    for task in mock_tasks:
+        for row in task["train_raw"]:
+            row["answer"] = "answer"
+    real_rows, real_manifest = _real_replay_rows(mock_tasks, 2, 64, _Tokenizer(), 128)
+    assert len(real_rows) == 128
+    assert [item["fact_counts"] for item in real_manifest] == [
+        {str(fact): 16 for fact in range(8, 12)},
+        {str(fact): 16 for fact in range(12, 16)},
+    ]
     protocol_args.group_count = 2
     try:
         _validate_locked_protocol(protocol_args, mock_tasks, selected)
@@ -681,7 +774,14 @@ def _self_check() -> None:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--method", choices=("seq", "gd", "rank1", "diagonal", "rank1_gd", "diag_gd", "joint"), default="gd")
+    parser.add_argument(
+        "--method",
+        choices=(
+            "seq", "gd", "cagd", "hard_replay", "real_replay", "rank1",
+            "diagonal", "rank1_gd", "diag_gd", "joint",
+        ),
+        default="cagd",
+    )
     parser.add_argument("--checkpoint", type=Path, default=ROOT.parent / "checkpoints/mdm_safetensors/mdm-170M-100e18.safetensors")
     parser.add_argument("--tokenizer", type=Path, default=ROOT / "tokenizer")
     parser.add_argument("--reverse-dir", type=Path, default=ROOT / "SMDM/data/reverse_experiments/june_version_7921032488")
