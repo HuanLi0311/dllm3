@@ -29,7 +29,7 @@ and mean BWT.  Otherwise the manuscript is not changed.
 
 ## Shared training and evaluation
 
-Both methods use AdamW with learning rate `1e-5`, cosine decay, no warmup,
+Both methods use AdamW (`beta1=0.9`, `beta2=0.95`, `epsilon=1e-8`) with learning rate `1e-5`, cosine decay, no warmup,
 zero weight decay, gradient clipping at 1, max sequence length 2,048, and
 global batch size 128.  The per-task epoch schedule is
 `[5, 3, 7, 5, 3, 5, 5, 7]`.  Because the available GPUs have 40GB rather than
