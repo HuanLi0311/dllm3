@@ -229,6 +229,57 @@ def result_summary(output: Path, factual: dict, fresh: dict,
     plt.close(fig)
 
 
+def qwen_scale(output: Path, qwen: dict) -> None:
+    """Render compact paired endpoints for the three Qwen checkpoints."""
+    import matplotlib.pyplot as plt
+
+    plt.rcParams.update({
+        "font.family": "DejaVu Sans",
+        "font.size": 7.2,
+        "pdf.fonttype": 42,
+        "ps.fonttype": 42,
+        "axes.labelcolor": INK,
+        "xtick.color": MUTED,
+        "ytick.color": INK,
+    })
+    fig, axes = plt.subplots(1, 2, figsize=(3.65, 1.85))
+    scales = (("qwen3_0.6b", "0.6B"), ("qwen3_1.7b", "1.7B"),
+              ("qwen3_4b", "4B"))
+    metrics = (("final_average_loss", "Final average loss"),
+               ("past_task_forgetting", "Past forgetting"))
+
+    for ax, (metric, title) in zip(axes, metrics):
+        for yi, (key, label) in enumerate(scales):
+            seq = qwen["groups"][key]["seq"][metric]
+            cagd = qwen["groups"][key]["gd"][metric]
+            ax.plot([cagd["mean"], seq["mean"]], [yi, yi], color="#CAD3D9",
+                    lw=2.0, zorder=1)
+            ax.errorbar(seq["mean"], yi, xerr=seq["sem"], fmt="s", ms=4.7,
+                        capsize=2.2, lw=1.2, color=MUTED, zorder=2)
+            ax.errorbar(cagd["mean"], yi, xerr=cagd["sem"], fmt="o", ms=5.0,
+                        capsize=2.2, lw=1.2, color=PINK, zorder=3)
+        ax.set_yticks(range(len(scales)), [label for _, label in scales])
+        ax.invert_yaxis()
+        ax.set_title(title, fontsize=7.5, fontweight="bold", color=INK, pad=5)
+        ax.grid(axis="x", color="#E0E6EA", lw=0.7, zorder=0)
+        ax.tick_params(axis="y", length=0)
+        ax.spines[["top", "right", "left"]].set_visible(False)
+        ax.spines["bottom"].set_color("#B9C3CA")
+
+    axes[0].plot([], [], "s", color=MUTED, label="Sequential")
+    axes[0].plot([], [], "o", color=PINK, label="CAGD")
+    axes[0].legend(frameon=False, fontsize=6.8, ncol=2, loc="upper left",
+                   bbox_to_anchor=(0.0, -0.22), handletextpad=0.35,
+                   columnspacing=0.8, borderaxespad=0)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    fig.subplots_adjust(left=0.13, right=0.995, top=0.88, bottom=0.28,
+                        wspace=0.34)
+    fig.savefig(output, bbox_inches="tight", pad_inches=0.015, facecolor="white")
+    fig.savefig(output.with_suffix(".png"), dpi=240, bbox_inches="tight",
+                pad_inches=0.015, facecolor="white")
+    plt.close(fig)
+
+
 def _fixture_summaries():
     metric = lambda values: {"mean": statistics.fmean(values), "sem": 0.02,
                              "values": values}
@@ -249,10 +300,26 @@ def _fixture_summaries():
         } for contrast in ("cagd_minus_seq", "cagd_minus_hard_replay")}
         for backend in ("smdm", "qwen")
     }
-    qwen = {"paired_contrasts": {
-        scale: {"gd_minus_seq": {"final_average_loss": metric([-1.0, -1.1, -0.9])}}
-        for scale in ("qwen3_0.6b", "qwen3_1.7b", "qwen3_4b")
-    }}
+    scales = ("qwen3_0.6b", "qwen3_1.7b", "qwen3_4b")
+    qwen = {
+        "paired_contrasts": {
+            scale: {"gd_minus_seq": {
+                "final_average_loss": metric([-1.0, -1.1, -0.9])}}
+            for scale in scales
+        },
+        "groups": {
+            scale: {
+                "seq": {
+                    "final_average_loss": metric([4.0, 4.1, 3.9]),
+                    "past_task_forgetting": metric([2.0, 2.1, 1.9]),
+                },
+                "gd": {
+                    "final_average_loss": metric([2.7, 2.8, 2.9]),
+                    "past_task_forgetting": metric([0.3, 0.4, 0.5]),
+                },
+            } for scale in scales
+        },
+    }
     return {"aggregate": aggregate}, component, {"paired": paired}, qwen
 
 
@@ -267,6 +334,10 @@ def _self_check() -> None:
         result_summary(result_output, factual, factual, component, natural, qwen)
         assert result_output.stat().st_size > 10_000
         assert result_output.with_suffix(".png").stat().st_size > 10_000
+        qwen_output = Path(directory) / "qwen.pdf"
+        qwen_scale(qwen_output, qwen)
+        assert qwen_output.stat().st_size > 5_000
+        assert qwen_output.with_suffix(".png").stat().st_size > 5_000
     print("self_check=ok")
 
 
@@ -299,6 +370,10 @@ def main() -> None:
     else:
         missing = ", ".join(str(path) for path in summary_paths if not path.is_file())
         print(f"results_skipped_missing={missing}")
+    if args.qwen_summary.is_file():
+        qwen_scale(args.output_dir / "qwen_cagd.pdf",
+                   json.loads(args.qwen_summary.read_text()))
+        print(f"wrote {args.output_dir / 'qwen_cagd.pdf'}")
     print(f"wrote {args.output_dir / 'cagd_overview.pdf'}")
 
 

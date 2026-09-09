@@ -1,14 +1,15 @@
-# Condition-Anchored Generative Distillation
+# Condition-Anchored Distillation for Continual Language Models
 
-This directory contains the experiments for *Stabilizing Continual Generation
-with Condition-Anchored Distillation*.  CAGD keeps a small set of old
-conditions, lets the frozen previous model reconstruct completions and
+This directory contains the experiments for *Stabilizing Language Models under
+Continual Learning via Condition-Anchored Distillation*.  CAGD keeps a small
+set of old prompts, lets the frozen previous model reconstruct completions and
 generation states, and matches the teacher's predictive distribution while
-learning the next task.
+learning the next language task.
 
-The formulation covers autoregressive and conditional diffusion generation.
-The empirical diffusion backend in this repository is specifically a masked
-diffusion language model (SMDM); the autoregressive backend is Qwen3.
+The formulation is presented for continual language-model adaptation and
+covers the two tested objectives: autoregressive generation and masked
+diffusion language modeling.  The diffusion backend in this repository is
+specifically SMDM; the autoregressive backend is Qwen3.
 
 ## Evidence and scope
 
