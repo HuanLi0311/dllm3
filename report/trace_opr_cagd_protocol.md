@@ -33,8 +33,8 @@ Both methods use AdamW with learning rate `1e-5`, cosine decay, no warmup,
 zero weight decay, gradient clipping at 1, max sequence length 2,048, and
 global batch size 128.  The per-task epoch schedule is
 `[5, 3, 7, 5, 3, 5, 5, 7]`.  Because the available GPUs have 40GB rather than
-the OPR paper's 80GB, a microbatch of one with gradient accumulation preserves
-the same global batch size.  Gradient checkpointing and ZeRO are engineering
+the OPR paper's 80GB, a microbatch of two with eight gradient-accumulation
+steps preserves the same global batch size.  Gradient checkpointing and ZeRO are engineering
 changes shared by both methods, not experimental factors.
 
 Training and evaluation use the Qwen chat template with thinking disabled.
@@ -59,10 +59,13 @@ evenly as possible over prior tasks at every stage.
   those 50 prompt--response pairs with the next task for ordinary SFT.
 - **CAGD:** retain only 50 deterministically sampled historical prompts.  At
   each stage boundary, the frozen previous checkpoint greedily generates one
-  completion of at most 512 tokens per anchor.  During every current-task
-  update, a separate task-balanced anchor minibatch receives forward token KL
-  from that fixed teacher on answer positions, with temperature 1 and weight
-  1.  The teacher and generated completions are stage-local.
+  completion of at most 512 tokens per anchor.  The fixed teacher logits on
+  those fixed AR trajectory states are cached exactly once at the stage
+  boundary.  During every current-task update, a separate task-balanced anchor
+  minibatch receives forward token KL from that cache on answer positions,
+  with temperature 1 and weight 1.  This cache is mathematically identical to
+  repeating the frozen-teacher forward pass; it changes runtime, not the loss.
+  The teacher cache and generated completions are stage-local.
 
 The methods are matched on backbone, task data and order, optimizer schedule,
 current-task exposures, permanent-record count, and evaluation.  They are not

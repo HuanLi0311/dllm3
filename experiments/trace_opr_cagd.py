@@ -432,7 +432,6 @@ def train_cagd(args) -> None:
         attn_implementation="sdpa",
         device_map={"": local_rank},
     )
-    student.config.use_cache = False
     teacher.eval()
     for parameter in teacher.parameters():
         parameter.requires_grad_(False)
