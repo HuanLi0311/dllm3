@@ -1,0 +1,81 @@
+# TRACE comparison: CAGD versus OPR-RU
+
+Status: frozen before pilot training on 2026-09-10.
+
+## Question and reporting gate
+
+This experiment asks whether CAGD is competitive with the default rule-scored
+On-Policy Replay method (OPR-RU) on the standard eight-task TRACE stream under
+full-parameter adaptation of the same 4B instruction model.
+
+Seed 3407 is run first as a paired systems pilot.  The remaining seeds 3408
+and 3409 are authorized when the pilot is not clearly dominated: CAGD must be
+within 2 percentage points of OPR-RU on both final average accuracy and BWT.
+The three-seed result may enter Section 4.4 after the existing Table 4 only if
+CAGD either exceeds OPR-RU, or is within 1 point on both mean final accuracy
+and mean BWT.  Otherwise the manuscript is not changed.
+
+## Locked benchmark and model
+
+- TRACE `LLM-CL-Benchmark_5000`, downloaded from the official release linked
+  by both TRACE and OPR.  Every task has 5,000 training examples; official test
+  sets are used without subsampling.
+- Canonical order: C-STANCE, FOMC, MeetingBank, Py150, ScienceQA,
+  NumGLUE-cm, NumGLUE-ds, and 20Minuten.
+- Qwen3-4B-Instruct-2507 snapshot
+  `cdbee75f17c01a7cc42f958dc650907174af0554`.
+- Full-parameter bf16 adaptation on eight A100 40GB GPUs.
+- Seeds: 3407, 3408, and 3409.
+
+## Shared training and evaluation
+
+Both methods use AdamW with learning rate `1e-5`, cosine decay, no warmup,
+zero weight decay, gradient clipping at 1, max sequence length 2,048, and
+global batch size 128.  The per-task epoch schedule is
+`[5, 3, 7, 5, 3, 5, 5, 7]`.  Because the available GPUs have 40GB rather than
+the OPR paper's 80GB, a microbatch of one with gradient accumulation preserves
+the same global batch size.  Gradient checkpointing and ZeRO are engineering
+changes shared by both methods, not experimental factors.
+
+Training and evaluation use the Qwen chat template with thinking disabled.
+Loss is computed only on assistant tokens.  Examples whose complete templated
+sequence exceeds 2,048 tokens are filtered consistently.  Evaluation uses the
+official OPR task scorers: first-character accuracy for C-STANCE, FOMC, and
+ScienceQA; ROUGE-L F1 for MeetingBank; fuzzy edit similarity for Py150;
+numeric exact match for NumGLUE-cm/ds; and SARI for 20Minuten.  Decoding uses
+temperature 0.1 and eight repetitions, following OPR.  We report the final
+mean of the eight task scores (ACC) and BWT over the seven past tasks,
+`mean_i<8(a_i,8 - a_i,i)`; higher is better for both.
+
+## Method-specific state
+
+The permanent replay budget is 1% of one task, or 50 records total, divided as
+evenly as possible over prior tasks at every stage.
+
+- **OPR-RU:** use the implementation at commit
+  `1384d8823b250acf2725dc983aea6ac6e64a4283`.  Roll out the latest checkpoint
+  once on every eligible historical training prompt, score each response with
+  its TRACE task metric, retain the highest-scoring allocation, and concatenate
+  those 50 prompt--response pairs with the next task for ordinary SFT.
+- **CAGD:** retain only 50 deterministically sampled historical prompts.  At
+  each stage boundary, the frozen previous checkpoint greedily generates one
+  completion of at most 512 tokens per anchor.  During every current-task
+  update, a separate task-balanced anchor minibatch receives forward token KL
+  from that fixed teacher on answer positions, with temperature 1 and weight
+  1.  The teacher and generated completions are stage-local.
+
+The methods are matched on backbone, task data and order, optimizer schedule,
+current-task exposures, permanent-record count, and evaluation.  They are not
+FLOP matched: CAGD deliberately pays a frozen-teacher forward pass during
+updates, whereas OPR pays large stage-boundary rollouts and ordinary replay
+SFT.  Wall time and peak memory are therefore recorded alongside quality.
+
+## Source discrepancies handled by the runner
+
+The released OPR repository contains an undefined `checkpoint_dir`, uses a
+linear scheduler in `scripts/train.sh` although the paper specifies cosine,
+and selects generation length from the current stage rather than the task
+being evaluated.  The third-party checkout remains unchanged.  The comparison
+runner follows the published protocol and imports/reuses the released task
+scorers and OPR-RU selection rule; every correction is recorded in result
+provenance.
