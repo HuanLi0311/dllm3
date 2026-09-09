@@ -37,8 +37,8 @@ TASKS = (
 EPOCHS = (5, 3, 7, 5, 3, 5, 5, 7)
 MAX_LENGTH = 2048
 BUFFER_SIZE = 50
-MICRO_BATCH = 2
-GRADIENT_ACCUMULATION = 8
+MICRO_BATCH = 4
+GRADIENT_ACCUMULATION = 4
 
 
 def read_jsonl(path: Path) -> list[dict]:
@@ -359,7 +359,9 @@ class PairedDataset:
         return len(self.current)
 
     def __getitem__(self, index):
-        return {"current": self.current[index], "anchor": self.anchors[index % len(self.anchors)]}
+        current = self.current[index]
+        anchor = self.anchors[index % len(self.anchors)]
+        return {"current": current, "anchor": anchor, "length": max(len(current["input_ids"]), len(anchor["input_ids"]))}
 
 
 def paired_collator(tokenizer):
@@ -537,6 +539,8 @@ def train_cagd(args) -> None:
         report_to="none",
         remove_unused_columns=False,
         dataloader_num_workers=0,
+        group_by_length=True,
+        length_column_name="length",
         seed=args.seed,
         data_seed=args.seed,
     )

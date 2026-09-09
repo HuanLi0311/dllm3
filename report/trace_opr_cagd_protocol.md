@@ -33,7 +33,7 @@ Both methods use AdamW with learning rate `1e-5`, cosine decay, no warmup,
 zero weight decay, gradient clipping at 1, max sequence length 2,048, and
 global batch size 128.  The per-task epoch schedule is
 `[5, 3, 7, 5, 3, 5, 5, 7]`.  Because the available GPUs have 40GB rather than
-the OPR paper's 80GB, a microbatch of two with eight gradient-accumulation
+the OPR paper's 80GB, a microbatch of four with four gradient-accumulation
 steps preserves the same global batch size.  Gradient checkpointing and ZeRO are engineering
 changes shared by both methods, not experimental factors.
 
