@@ -37,6 +37,8 @@ TASKS = (
 EPOCHS = (5, 3, 7, 5, 3, 5, 5, 7)
 MAX_LENGTH = 2048
 BUFFER_SIZE = 50
+MICRO_BATCH = 2
+GRADIENT_ACCUMULATION = 8
 
 
 def read_jsonl(path: Path) -> list[dict]:
@@ -293,9 +295,9 @@ def train_opr(args) -> None:
         "--num_train_epochs",
         str(EPOCHS[args.stage]),
         "--per_device_train_batch_size",
-        "1",
+        str(MICRO_BATCH),
         "--gradient_accumulation_steps",
-        "16",
+        str(GRADIENT_ACCUMULATION),
         "--learning_rate",
         "1e-5",
         "--max_length",
@@ -380,15 +382,19 @@ def paired_collator(tokenizer):
         }
 
     def collate(features: list[dict]) -> dict:
-        return {**pad([row["current"] for row in features], "current"), **pad([row["anchor"] for row in features], "anchor")}
+        anchors = [row["anchor"] for row in features]
+        result = {**pad([row["current"] for row in features], "current"), **pad(anchors, "anchor")}
+        if "teacher_logits" in anchors[0]:
+            result["anchor_teacher_logits"] = torch.cat([row["teacher_logits"] for row in anchors])
+        return result
 
     return collate
 
 
 def train_cagd(args) -> None:
     import torch
-    from liger_kernel.chunked_loss import LigerFusedLinearJSDLoss
     from liger_kernel.transformers import LigerFusedLinearCrossEntropyLoss
+    from torch.nn import functional as F
     from torch import nn
     from transformers import AutoModelForCausalLM, AutoTokenizer, Trainer, TrainingArguments, set_seed
 
@@ -416,32 +422,57 @@ def train_cagd(args) -> None:
     if len(anchors) != BUFFER_SIZE:
         raise RuntimeError(f"expected {BUFFER_SIZE} valid anchors, found {len(anchors)}")
 
-    student = AutoModelForCausalLM.from_pretrained(
-        args.checkpoint, torch_dtype=torch.bfloat16, low_cpu_mem_usage=True, trust_remote_code=True, attn_implementation="sdpa"
-    )
+    local_rank = int(os.environ.get("LOCAL_RANK", "0"))
+    torch.cuda.set_device(local_rank)
     teacher = AutoModelForCausalLM.from_pretrained(
+        args.checkpoint,
+        torch_dtype=torch.bfloat16,
+        low_cpu_mem_usage=True,
+        trust_remote_code=True,
+        attn_implementation="sdpa",
+        device_map={"": local_rank},
+    )
+    student.config.use_cache = False
+    teacher.eval()
+    for parameter in teacher.parameters():
+        parameter.requires_grad_(False)
+
+    pad_id = tokenizer.pad_token_id if tokenizer.pad_token_id is not None else tokenizer.eos_token_id
+    with torch.no_grad():
+        for start in range(0, len(anchors), 4):
+            batch = anchors[start : start + 4]
+            length = max(len(row["input_ids"]) for row in batch)
+            input_ids = torch.tensor(
+                [row["input_ids"] + [pad_id] * (length - len(row["input_ids"])) for row in batch],
+                dtype=torch.long,
+                device=local_rank,
+            )
+            attention_mask = torch.tensor(
+                [[1] * len(row["input_ids"]) + [0] * (length - len(row["input_ids"])) for row in batch],
+                dtype=torch.long,
+                device=local_rank,
+            )
+            hidden = teacher.model(input_ids=input_ids, attention_mask=attention_mask, use_cache=False).last_hidden_state
+            head = teacher.get_output_embeddings()
+            for index, row in enumerate(batch):
+                labels = torch.tensor(row["labels"][1:], dtype=torch.long, device=local_rank)
+                answer_hidden = hidden[index, :-1][labels != -100]
+                row["teacher_logits"] = F.linear(answer_hidden, head.weight, getattr(head, "bias", None)).cpu()
+    teacher_cache_peak = torch.cuda.max_memory_allocated()
+    del teacher
+    torch.cuda.empty_cache()
+
+    student = AutoModelForCausalLM.from_pretrained(
         args.checkpoint, torch_dtype=torch.bfloat16, low_cpu_mem_usage=True, trust_remote_code=True, attn_implementation="sdpa"
     )
     student.config.use_cache = False
     student.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
-    teacher.eval()
-    for parameter in teacher.parameters():
-        parameter.requires_grad_(False)
 
     class CAGDModel(nn.Module):
         def __init__(self):
             super().__init__()
             self.student = student
-            self.teacher = teacher
             self.ce = LigerFusedLinearCrossEntropyLoss(ignore_index=-100)
-            self.kd = LigerFusedLinearJSDLoss(
-                weight_hard_loss=0.0,
-                weight_soft_loss=1.0,
-                beta=0.0,
-                temperature=1.0,
-                chunk_size=128,
-                compiled=False,
-            )
 
         @staticmethod
         def hidden(model, input_ids, attention_mask):
@@ -455,6 +486,7 @@ def train_cagd(args) -> None:
             anchor_input_ids,
             anchor_attention_mask,
             anchor_labels,
+            anchor_teacher_logits,
         ):
             current_hidden = self.hidden(self.student, current_input_ids, current_attention_mask)
             current_target = current_labels[:, 1:]
@@ -467,26 +499,21 @@ def train_cagd(args) -> None:
                 getattr(self.student.get_output_embeddings(), "bias", None),
             )
             anchor_student = self.hidden(self.student, anchor_input_ids, anchor_attention_mask)
-            self.teacher.eval()
-            with torch.no_grad():
-                anchor_teacher = self.hidden(self.teacher, anchor_input_ids, anchor_attention_mask)
             anchor_target = anchor_labels[:, 1:]
             anchor_mask = anchor_target != -100
-            distill_loss = self.kd(
-                student_input=anchor_student[:, :-1][anchor_mask],
-                student_weight=self.student.get_output_embeddings().weight,
-                teacher_input=anchor_teacher[:, :-1][anchor_mask],
-                teacher_weight=self.teacher.get_output_embeddings().weight,
-                true_labels=anchor_target[anchor_mask],
-                student_bias=getattr(self.student.get_output_embeddings(), "bias", None),
-                teacher_bias=getattr(self.teacher.get_output_embeddings(), "bias", None),
+            answer_hidden = anchor_student[:, :-1][anchor_mask]
+            head = self.student.get_output_embeddings()
+            student_logits = F.linear(answer_hidden, head.weight, getattr(head, "bias", None)).float()
+            teacher_log_probs = F.log_softmax(anchor_teacher_logits.float(), dim=-1)
+            distill_loss = F.kl_div(
+                F.log_softmax(student_logits, dim=-1), teacher_log_probs, reduction="batchmean", log_target=True
             )
             return {"loss": sft_loss + distill_loss, "sft_loss": sft_loss.detach(), "distill_loss": distill_loss.detach()}
 
     deepspeed_config = {
         "bf16": {"enabled": True},
-        "train_micro_batch_size_per_gpu": 1,
-        "gradient_accumulation_steps": 16,
+        "train_micro_batch_size_per_gpu": MICRO_BATCH,
+        "gradient_accumulation_steps": GRADIENT_ACCUMULATION,
         "train_batch_size": 128,
         "gradient_clipping": 1.0,
         "zero_optimization": {"stage": 2, "overlap_comm": True, "contiguous_gradients": True},
@@ -497,8 +524,8 @@ def train_cagd(args) -> None:
         output_dir=str(args.output / "trainer"),
         num_train_epochs=1 if args.smoke else EPOCHS[args.stage],
         max_steps=1 if args.smoke else -1,
-        per_device_train_batch_size=1,
-        gradient_accumulation_steps=16,
+        per_device_train_batch_size=MICRO_BATCH,
+        gradient_accumulation_steps=GRADIENT_ACCUMULATION,
         learning_rate=1e-5,
         lr_scheduler_type="cosine",
         warmup_ratio=0.0,
@@ -523,7 +550,7 @@ def train_cagd(args) -> None:
     started = time.time()
     trainer.train()
     trainer.accelerator.wait_for_everyone()
-    peak = torch.tensor(torch.cuda.max_memory_allocated(), device=trainer.accelerator.device)
+    peak = torch.tensor(max(teacher_cache_peak, torch.cuda.max_memory_allocated()), device=trainer.accelerator.device)
     torch.distributed.all_reduce(peak, op=torch.distributed.ReduceOp.MAX)
     if trainer.accelerator.is_main_process:
         output_model = args.output / "model"
