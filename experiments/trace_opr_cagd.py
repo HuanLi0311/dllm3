@@ -361,7 +361,8 @@ class PairedDataset:
     def __getitem__(self, index):
         current = self.current[index]
         anchor = self.anchors[index % len(self.anchors)]
-        return {"current": current, "anchor": anchor, "length": max(len(current["input_ids"]), len(anchor["input_ids"]))}
+        # input_ids is exposed only so Trainer's native length sampler can avoid excessive padding.
+        return {"current": current, "anchor": anchor, "input_ids": current["input_ids"]}
 
 
 def paired_collator(tokenizer):
@@ -603,7 +604,7 @@ def self_check() -> None:
     current = [{"input_ids": list(range(index + 1)), "labels": []} for index in range(3)]
     anchors = [{"input_ids": [1], "labels": []}, {"input_ids": [1, 2], "labels": []}]
     toy = PairedDataset(current, anchors)
-    assert toy[2] == {"current": current[2], "anchor": anchors[0], "length": 3}
+    assert toy[2] == {"current": current[2], "anchor": anchors[0], "input_ids": current[2]["input_ids"]}
     assert generation_length(0) == 1 and generation_length(4) == 512
     if int(os.environ.get("WORLD_SIZE", "1")) > 1:
         import torch
