@@ -9,7 +9,6 @@ import json
 import os
 import random
 import re
-import subprocess
 import sys
 import time
 from pathlib import Path
@@ -270,98 +269,129 @@ def stage_inference(args) -> None:
         write_jsonl(args.next_support, rows)
 
 
-def latest_checkpoint(output_dir: Path) -> Path:
-    checkpoints = list(output_dir.rglob("checkpoint-*"))
-    if not checkpoints:
-        raise RuntimeError(f"Swift produced no checkpoint below {output_dir}")
-    return max(checkpoints, key=lambda path: path.stat().st_mtime)
-
-
 def train_opr(args) -> None:
+    import torch
+    from liger_kernel.transformers import LigerFusedLinearCrossEntropyLoss
+    from torch import nn
+    from transformers import AutoModelForCausalLM, AutoTokenizer, Trainer, TrainingArguments, set_seed
+
     if args.output.exists():
         raise FileExistsError(f"refusing to reuse {args.output}")
-    datasets = [DATA / TASKS[args.stage] / "train.jsonl"]
-    if args.support is not None:
-        datasets.append(args.support)
-    command = [
-        str(Path(sys.executable).parent / "swift"),
-        "sft",
-        "--model",
-        str(args.checkpoint),
-        "--train_type",
-        "full",
-        "--dataset",
-        *map(str, datasets),
-        "--num_train_epochs",
-        str(EPOCHS[args.stage]),
-        "--per_device_train_batch_size",
-        str(MICRO_BATCH),
-        "--gradient_accumulation_steps",
-        str(GRADIENT_ACCUMULATION),
-        "--learning_rate",
-        "1e-5",
-        "--max_length",
-        str(MAX_LENGTH),
-        "--truncation_strategy",
-        "delete",
-        "--output_dir",
-        str(args.output),
-        "--add_version",
-        "false",
-        "--warmup_ratio",
-        "0",
-        "--weight_decay",
-        "0",
-        "--lr_scheduler_type",
-        "cosine",
-        "--max_grad_norm",
-        "1",
-        "--save_strategy",
-        "steps",
-        "--save_steps",
-        "500",
-        "--save_total_limit",
-        "1",
-        "--save_only_model",
-        "true",
-        "--use_liger_kernel",
-        "true",
-        "--gradient_checkpointing",
-        "true",
-        "--group_by_length",
-        "true",
-        "--enable_thinking",
-        "false",
-        "--attn_impl",
-        "sdpa",
-        "--torch_dtype",
-        "bfloat16",
-        "--columns",
-        '{"prompt":"query","answer":"response"}',
-        "--deepspeed",
-        "zero2",
-        "--report_to",
-        "none",
-        "--seed",
-        str(args.seed),
-        "--data_seed",
-        str(args.seed),
-    ]
-    env = os.environ.copy()
-    env.update({"NPROC_PER_NODE": "8", "CUDA_VISIBLE_DEVICES": "0,1,2,3,4,5,6,7"})
     started = time.time()
-    subprocess.run(command, check=True, env=env)
-    checkpoint = latest_checkpoint(args.output)
-    write_json(
-        args.output / "stage_result.json",
-        {
-            "method": "shared" if args.stage == 0 else "opr-ru",
-            "stage": args.stage,
-            "checkpoint": str(checkpoint),
-            "elapsed_seconds": time.time() - started,
-            "command": command,
-        },
+    set_seed(args.seed)
+    tokenizer = AutoTokenizer.from_pretrained(args.checkpoint, trust_remote_code=True)
+    rows = read_jsonl(DATA / TASKS[args.stage] / "train.jsonl")
+    if args.support is not None:
+        rows += read_jsonl(args.support)
+    encoded = [
+        example
+        for row in rows
+        if (example := encode_training_example(tokenizer, row["prompt"], row["answer"])) is not None
+    ]
+
+    class EncodedDataset:
+        def __len__(self):
+            return len(encoded)
+
+        def __getitem__(self, index):
+            return encoded[index]
+
+    pad_id = tokenizer.pad_token_id if tokenizer.pad_token_id is not None else tokenizer.eos_token_id
+
+    def collate(features):
+        length = max(len(row["input_ids"]) for row in features)
+        return {
+            "input_ids": torch.tensor(
+                [row["input_ids"] + [pad_id] * (length - len(row["input_ids"])) for row in features], dtype=torch.long
+            ),
+            "attention_mask": torch.tensor(
+                [[1] * len(row["input_ids"]) + [0] * (length - len(row["input_ids"])) for row in features],
+                dtype=torch.long,
+            ),
+            "labels": torch.tensor(
+                [row["labels"] + [-100] * (length - len(row["labels"])) for row in features], dtype=torch.long
+            ),
+        }
+
+    student = AutoModelForCausalLM.from_pretrained(
+        args.checkpoint, torch_dtype=torch.bfloat16, low_cpu_mem_usage=True, trust_remote_code=True, attn_implementation="sdpa"
     )
+    student.config.use_cache = False
+    student.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
+
+    class SFTModel(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.student = student
+            self.ce = LigerFusedLinearCrossEntropyLoss(ignore_index=-100)
+
+        def forward(self, input_ids, attention_mask, labels):
+            hidden = self.student.model(input_ids=input_ids, attention_mask=attention_mask, use_cache=False).last_hidden_state
+            target = labels[:, 1:]
+            mask = target != -100
+            head = self.student.get_output_embeddings()
+            loss = self.ce(head.weight, hidden[:, :-1][mask], target[mask], getattr(head, "bias", None))
+            return {"loss": loss}
+
+    deepspeed_config = {
+        "bf16": {"enabled": True},
+        "train_micro_batch_size_per_gpu": MICRO_BATCH,
+        "gradient_accumulation_steps": GRADIENT_ACCUMULATION,
+        "train_batch_size": 128,
+        "gradient_clipping": 1.0,
+        "zero_optimization": {"stage": 2, "overlap_comm": True, "contiguous_gradients": True},
+    }
+    training_args = TrainingArguments(
+        output_dir=str(args.output / "trainer"),
+        num_train_epochs=EPOCHS[args.stage],
+        per_device_train_batch_size=MICRO_BATCH,
+        gradient_accumulation_steps=GRADIENT_ACCUMULATION,
+        learning_rate=1e-5,
+        adam_beta1=0.9,
+        adam_beta2=0.95,
+        adam_epsilon=1e-8,
+        lr_scheduler_type="cosine",
+        warmup_ratio=0.0,
+        weight_decay=0.0,
+        max_grad_norm=1.0,
+        bf16=True,
+        deepspeed=deepspeed_config,
+        save_strategy="no",
+        logging_steps=1,
+        report_to="none",
+        remove_unused_columns=False,
+        dataloader_num_workers=0,
+        group_by_length=True,
+        seed=args.seed,
+        data_seed=args.seed,
+    )
+    trainer = Trainer(model=SFTModel(), args=training_args, train_dataset=EncodedDataset(), data_collator=collate)
+    trainer.train()
+    trainer.accelerator.wait_for_everyone()
+    peak = torch.tensor(torch.cuda.max_memory_allocated(), device=trainer.accelerator.device)
+    torch.distributed.all_reduce(peak, op=torch.distributed.ReduceOp.MAX)
+    if trainer.accelerator.is_main_process:
+        output_model = args.output / "model"
+        unwrapped = trainer.accelerator.unwrap_model(trainer.model_wrapped)
+        unwrapped.student.config.use_cache = True
+        unwrapped.student.save_pretrained(output_model, safe_serialization=True, max_shard_size="4GB")
+        tokenizer.save_pretrained(output_model)
+        write_json(
+            args.output / "stage_result.json",
+            {
+                "method": "shared" if args.stage == 0 else "opr-ru",
+                "stage": args.stage,
+                "checkpoint": str(output_model),
+                "elapsed_seconds": time.time() - started,
+                "peak_gpu_bytes": int(peak.item()),
+                "eligible_training_examples": len(encoded),
+                "current_examples_before_filter": 5000,
+                "support_examples_before_filter": 0 if args.support is None else len(read_jsonl(args.support)),
+                "trainable_parameters": sum(parameter.numel() for parameter in student.parameters()),
+            },
+        )
+    trainer.accelerator.wait_for_everyone()
+    torch.distributed.destroy_process_group()
 
 
 class PairedDataset:
@@ -419,6 +449,7 @@ def train_cagd(args) -> None:
         raise FileExistsError(f"refusing to reuse {args.output}")
     if not args.smoke and args.support is None:
         raise ValueError("formal CAGD training requires --support")
+    started = time.time()
     set_seed(args.seed)
     tokenizer = AutoTokenizer.from_pretrained(args.checkpoint, trust_remote_code=True)
     current = [
@@ -568,7 +599,6 @@ def train_cagd(args) -> None:
         train_dataset=PairedDataset(current, anchors),
         data_collator=paired_collator(tokenizer),
     )
-    started = time.time()
     trainer.train()
     trainer.accelerator.wait_for_everyone()
     peak = torch.tensor(max(teacher_cache_peak, torch.cuda.max_memory_allocated()), device=trainer.accelerator.device)
@@ -594,6 +624,8 @@ def train_cagd(args) -> None:
                 "trainable_parameters": sum(parameter.numel() for parameter in student.parameters()),
             },
         )
+    trainer.accelerator.wait_for_everyone()
+    torch.distributed.destroy_process_group()
 
 
 def summarize(args) -> None:
