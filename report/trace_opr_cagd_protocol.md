@@ -80,5 +80,7 @@ linear scheduler in `scripts/train.sh` although the paper specifies cosine,
 and selects generation length from the current stage rather than the task
 being evaluated.  The third-party checkout remains unchanged.  The comparison
 runner follows the published protocol and imports/reuses the released task
-scorers and OPR-RU selection rule; every correction is recorded in result
-provenance.
+scorers and OPR-RU selection rule.  Ordinary current-task and OPR replay SFT
+use the same assistant-only CE/ZeRO runner as the CAGD student, avoiding a
+training-backend confound; this does not alter OPR's generated replay or
+rule-scored selection.  Every correction is recorded in result provenance.
