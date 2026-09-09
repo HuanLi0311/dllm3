@@ -573,8 +573,9 @@ def self_check() -> None:
         import torch
         import torch.distributed as dist
 
+        torch.cuda.set_device(int(os.environ["LOCAL_RANK"]))
         dist.init_process_group("nccl")
-        value = torch.tensor([dist.get_rank() + 1.0], device="cuda")
+        value = torch.tensor([dist.get_rank() + 1.0], device=torch.cuda.current_device())
         dist.all_reduce(value)
         assert value.item() == dist.get_world_size() * (dist.get_world_size() + 1) / 2
         dist.destroy_process_group()
