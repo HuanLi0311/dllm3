@@ -455,7 +455,7 @@ def train_cagd(args) -> None:
             head = teacher.get_output_embeddings()
             for index, row in enumerate(batch):
                 labels = torch.tensor(row["labels"][1:], dtype=torch.long, device=local_rank)
-                answer_hidden = hidden[index, :-1][labels != -100]
+                answer_hidden = hidden[index, : len(row["input_ids"]) - 1][labels != -100]
                 row["teacher_logits"] = F.linear(answer_hidden, head.weight, getattr(head, "bias", None)).cpu()
     teacher_cache_peak = torch.cuda.max_memory_allocated()
     del teacher
