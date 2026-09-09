@@ -569,7 +569,16 @@ def self_check() -> None:
     toy = PairedDataset([{"x": i} for i in range(3)], [{"y": 1}, {"y": 2}])
     assert toy[2] == {"current": {"x": 2}, "anchor": {"y": 1}}
     assert generation_length(0) == 1 and generation_length(4) == 512
-    print(json.dumps({"self_check": "ok"}))
+    if int(os.environ.get("WORLD_SIZE", "1")) > 1:
+        import torch
+        import torch.distributed as dist
+
+        dist.init_process_group("nccl")
+        value = torch.tensor([dist.get_rank() + 1.0], device="cuda")
+        dist.all_reduce(value)
+        assert value.item() == dist.get_world_size() * (dist.get_world_size() + 1) / 2
+        dist.destroy_process_group()
+    print(json.dumps({"self_check": "ok", "world_size": int(os.environ.get("WORLD_SIZE", "1"))}))
 
 
 def parser() -> argparse.ArgumentParser:
