@@ -242,6 +242,10 @@ def make_cagd_anchors(llm, tokenizer, stage: int, seed: int) -> list[dict]:
 
 
 def stage_inference(args) -> None:
+    if args.evaluation is None and args.next_support is None:
+        raise ValueError("stage-inference needs --evaluation and/or --next-support")
+    if args.next_support is not None and args.stage == len(TASKS) - 1:
+        raise ValueError("the final stage has no next-task support")
     from transformers import AutoTokenizer
 
     tokenizer = AutoTokenizer.from_pretrained(args.checkpoint, trust_remote_code=True)
@@ -390,6 +394,8 @@ def train_cagd(args) -> None:
 
     if args.output.exists():
         raise FileExistsError(f"refusing to reuse {args.output}")
+    if not args.smoke and args.support is None:
+        raise ValueError("formal CAGD training requires --support")
     set_seed(args.seed)
     tokenizer = AutoTokenizer.from_pretrained(args.checkpoint, trust_remote_code=True)
     current = [
@@ -397,9 +403,14 @@ def train_cagd(args) -> None:
         for row in read_jsonl(DATA / TASKS[args.stage] / "train.jsonl")
         if (encoded := encode_training_example(tokenizer, row["prompt"], row["answer"])) is not None
     ]
+    support_rows = (
+        read_jsonl(args.support)
+        if args.support is not None
+        else read_jsonl(DATA / TASKS[0] / "train.jsonl")[:BUFFER_SIZE]
+    )
     anchors = [
         encoded
-        for row in read_jsonl(args.support)
+        for row in support_rows
         if (encoded := encode_training_example(tokenizer, row["prompt"], row["answer"])) is not None
     ]
     if len(anchors) != BUFFER_SIZE:
@@ -476,9 +487,12 @@ def train_cagd(args) -> None:
         "gradient_clipping": 1.0,
         "zero_optimization": {"stage": 2, "overlap_comm": True, "contiguous_gradients": True},
     }
+    if args.smoke:
+        current = current[:128]
     training_args = TrainingArguments(
         output_dir=str(args.output / "trainer"),
-        num_train_epochs=EPOCHS[args.stage],
+        num_train_epochs=1 if args.smoke else EPOCHS[args.stage],
+        max_steps=1 if args.smoke else -1,
         per_device_train_batch_size=1,
         gradient_accumulation_steps=16,
         learning_rate=1e-5,
@@ -510,15 +524,17 @@ def train_cagd(args) -> None:
     if trainer.accelerator.is_main_process:
         output_model = args.output / "model"
         unwrapped = trainer.accelerator.unwrap_model(trainer.model_wrapped)
-        unwrapped.student.config.use_cache = True
-        unwrapped.student.save_pretrained(output_model, safe_serialization=True, max_shard_size="4GB")
-        tokenizer.save_pretrained(output_model)
+        if not args.smoke:
+            unwrapped.student.config.use_cache = True
+            unwrapped.student.save_pretrained(output_model, safe_serialization=True, max_shard_size="4GB")
+            tokenizer.save_pretrained(output_model)
         write_json(
             args.output / "stage_result.json",
             {
                 "method": "cagd",
                 "stage": args.stage,
-                "checkpoint": str(output_model),
+                "checkpoint": None if args.smoke else str(output_model),
+                "smoke": args.smoke,
                 "elapsed_seconds": time.time() - started,
                 "peak_gpu_bytes": int(peak.item()),
                 "eligible_current_examples": len(current),
@@ -584,7 +600,8 @@ def parser() -> argparse.ArgumentParser:
     cagd.add_argument("--checkpoint", type=Path, required=True)
     cagd.add_argument("--stage", type=int, choices=range(1, 8), required=True)
     cagd.add_argument("--seed", type=int, default=3407)
-    cagd.add_argument("--support", type=Path, required=True)
+    cagd.add_argument("--support", type=Path)
+    cagd.add_argument("--smoke", action="store_true")
     cagd.add_argument("--output", type=Path, required=True)
 
     summary = sub.add_parser("summarize")
