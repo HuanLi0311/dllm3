@@ -457,23 +457,27 @@ def train_cagd(args) -> None:
             anchor_labels,
         ):
             current_hidden = self.hidden(self.student, current_input_ids, current_attention_mask)
-            current_target = current_labels[:, 1:].contiguous().view(-1)
+            current_target = current_labels[:, 1:]
+            current_mask = current_target != -100
+            current_answer_hidden = current_hidden[:, :-1][current_mask]
             sft_loss = self.ce(
                 self.student.get_output_embeddings().weight,
-                current_hidden[:, :-1].contiguous().view(-1, current_hidden.shape[-1]),
-                current_target,
+                current_answer_hidden,
+                current_target[current_mask],
                 getattr(self.student.get_output_embeddings(), "bias", None),
             )
             anchor_student = self.hidden(self.student, anchor_input_ids, anchor_attention_mask)
             self.teacher.eval()
             with torch.no_grad():
                 anchor_teacher = self.hidden(self.teacher, anchor_input_ids, anchor_attention_mask)
+            anchor_target = anchor_labels[:, 1:]
+            anchor_mask = anchor_target != -100
             distill_loss = self.kd(
-                student_input=anchor_student[:, :-1].contiguous().view(-1, anchor_student.shape[-1]),
+                student_input=anchor_student[:, :-1][anchor_mask],
                 student_weight=self.student.get_output_embeddings().weight,
-                teacher_input=anchor_teacher[:, :-1].contiguous().view(-1, anchor_teacher.shape[-1]),
+                teacher_input=anchor_teacher[:, :-1][anchor_mask],
                 teacher_weight=self.teacher.get_output_embeddings().weight,
-                true_labels=anchor_labels[:, 1:].contiguous().view(-1),
+                true_labels=anchor_target[anchor_mask],
                 student_bias=getattr(self.student.get_output_embeddings(), "bias", None),
                 teacher_bias=getattr(self.teacher.get_output_embeddings(), "bias", None),
             )
