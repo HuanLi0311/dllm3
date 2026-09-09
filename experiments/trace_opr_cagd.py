@@ -160,10 +160,14 @@ def make_llm(checkpoint: Path, seed: int):
     )
 
 
-def chat(llm, messages: list[list[dict]], temperature: float, max_tokens: int, n: int = 1):
+def chat(llm, messages: list[list[dict]], temperature: float, max_tokens: int | list[int], n: int = 1):
     from vllm import SamplingParams
 
-    params = SamplingParams(temperature=temperature, max_tokens=max_tokens, n=n)
+    params = (
+        [SamplingParams(temperature=temperature, max_tokens=length, n=n) for length in max_tokens]
+        if isinstance(max_tokens, list)
+        else SamplingParams(temperature=temperature, max_tokens=max_tokens, n=n)
+    )
     return llm.chat(messages, params, chat_template_kwargs={"enable_thinking": False})
 
 
@@ -225,7 +229,8 @@ def make_cagd_anchors(llm, tokenizer, stage: int, seed: int) -> list[dict]:
         for index in indices[:keep]:
             selected.append({"prompt": rows[index]["prompt"], "source_task": TASKS[task_id], "source_index": index})
     messages = [[{"role": "user", "content": row["prompt"]}] for row in selected]
-    outputs = chat(llm, messages, 0.0, 512)
+    lengths = [max(1, min(512, MAX_LENGTH - len(apply_template(tokenizer, row["prompt"])))) for row in selected]
+    outputs = chat(llm, messages, 0.0, lengths)
     anchors = []
     for row, output in zip(selected, outputs):
         answer = output.outputs[0].text
@@ -242,12 +247,13 @@ def stage_inference(args) -> None:
     tokenizer = AutoTokenizer.from_pretrained(args.checkpoint, trust_remote_code=True)
     llm = make_llm(args.checkpoint, args.seed)
     task_ids = list(range(args.stage + 1)) if args.stage == len(TASKS) - 1 else [args.stage]
-    evaluation = {
-        "checkpoint": str(args.checkpoint),
-        "stage": args.stage,
-        "task_scores": evaluate_tasks(llm, tokenizer, task_ids),
-    }
-    write_json(args.evaluation, evaluation)
+    if args.evaluation is not None:
+        evaluation = {
+            "checkpoint": str(args.checkpoint),
+            "stage": args.stage,
+            "task_scores": evaluate_tasks(llm, tokenizer, task_ids),
+        }
+        write_json(args.evaluation, evaluation)
     if args.next_support is not None:
         next_stage = args.stage + 1
         rows = (
@@ -272,7 +278,7 @@ def train_opr(args) -> None:
     if args.support is not None:
         datasets.append(args.support)
     command = [
-        "swift",
+        str(Path(sys.executable).parent / "swift"),
         "sft",
         "--model",
         str(args.checkpoint),
@@ -448,6 +454,7 @@ def train_cagd(args) -> None:
                 getattr(self.student.get_output_embeddings(), "bias", None),
             )
             anchor_student = self.hidden(self.student, anchor_input_ids, anchor_attention_mask)
+            self.teacher.eval()
             with torch.no_grad():
                 anchor_teacher = self.hidden(self.teacher, anchor_input_ids, anchor_attention_mask)
             distill_loss = self.kd(
@@ -563,7 +570,7 @@ def parser() -> argparse.ArgumentParser:
     inference.add_argument("--checkpoint", type=Path, required=True)
     inference.add_argument("--stage", type=int, choices=range(8), required=True)
     inference.add_argument("--seed", type=int, default=3407)
-    inference.add_argument("--evaluation", type=Path, required=True)
+    inference.add_argument("--evaluation", type=Path)
     inference.add_argument("--next-support", type=Path)
 
     opr = sub.add_parser("train-opr")
