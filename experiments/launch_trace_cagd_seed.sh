@@ -12,20 +12,20 @@ run=$repo/iclr_3/runs/trace_opr_cagd/seed$seed
 export CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
 export TOKENIZERS_PARALLELISM=false
 export TORCHINDUCTOR_COMPILE_THREADS=1
-export TRITON_CACHE_DIR=/tmp/trace_opr_triton_lih2511
+export TRITON_CACHE_DIR=/tmp/trace_cagd_triton_lih2511
 export VLLM_ENABLE_V1_MULTIPROCESSING=0
 mkdir -p "$TRITON_CACHE_DIR"
+cd "$repo"
 
 checkpoint() {
     "$python" -c 'import json,sys; print(json.load(open(sys.argv[1]))["checkpoint"])' "$1/stage_result.json"
 }
 
 train_stage() {
-    method=$1
-    stage=$2
-    source=$3
-    support=$4
-    output=$5
+    stage=$1
+    source=$2
+    support=$3
+    output=$4
     if [[ -f "$output/stage_result.json" ]]; then
         return
     fi
@@ -33,20 +33,19 @@ train_stage() {
         echo "incomplete output requires inspection: $output" >&2
         exit 1
     fi
-    "$torchrun" --standalone --nproc_per_node=8 "$runner" "train-$method" \
+    "$torchrun" --standalone --nproc_per_node=8 "$runner" train-cagd \
         --checkpoint "$source" --stage "$stage" --seed "$seed" --support "$support" --output "$output"
 }
 
 stage_inference() {
-    method=$1
-    stage=$2
-    source=$3
-    evaluation=$4
-    support=${5:-}
+    stage=$1
+    source=$2
+    evaluation=$3
+    support=${4:-}
     if [[ -f "$evaluation" && ( -z "$support" || -f "$support" ) ]]; then
         return
     fi
-    args=(stage-inference --method "$method" --checkpoint "$source" --stage "$stage" --seed "$seed")
+    args=(stage-inference --method cagd --checkpoint "$source" --stage "$stage" --seed "$seed")
     [[ -f "$evaluation" ]] || args+=(--evaluation "$evaluation")
     [[ -z "$support" || -f "$support" ]] || args+=(--next-support "$support")
     "$python" "$runner" "${args[@]}"
@@ -58,27 +57,26 @@ if [[ ! -f "$shared/stage_result.json" ]]; then
         echo "incomplete output requires inspection: $shared" >&2
         exit 1
     fi
+    # Stage 0 is shared SFT; CAGD begins at the first task transition.
     "$torchrun" --standalone --nproc_per_node=8 "$runner" train-opr \
         --checkpoint "$model" --stage 0 --seed "$seed" --output "$shared"
 fi
 shared_checkpoint=$(checkpoint "$shared")
 cagd_support=$shared/support_cagd_stage1.jsonl
-stage_inference cagd 0 "$shared_checkpoint" "$shared/evaluation.json" "$cagd_support"
+stage_inference 0 "$shared_checkpoint" "$shared/evaluation.json" "$cagd_support"
 
-for method in cagd; do
-    source=$shared_checkpoint
-    support=$shared/support_${method}_stage1.jsonl
-    for stage in 1 2 3 4 5 6 7; do
-        output=$run/$method/stage$stage
-        train_stage "$method" "$stage" "$source" "$support" "$output"
-        source=$(checkpoint "$output")
-        if [[ "$stage" -lt 7 ]]; then
-            support=$output/support_${method}_stage$((stage + 1)).jsonl
-            stage_inference "$method" "$stage" "$source" "$output/evaluation.json" "$support"
-        else
-            stage_inference "$method" "$stage" "$source" "$output/evaluation.json"
-        fi
-    done
-    [[ -f "$run/$method/summary.json" ]] || \
-        "$python" "$runner" summarize --run "$run" --method "$method"
+source=$shared_checkpoint
+support=$cagd_support
+for stage in 1 2 3 4 5 6 7; do
+    output=$run/cagd/stage$stage
+    train_stage "$stage" "$source" "$support" "$output"
+    source=$(checkpoint "$output")
+    if [[ "$stage" -lt 7 ]]; then
+        support=$output/support_cagd_stage$((stage + 1)).jsonl
+        stage_inference "$stage" "$source" "$output/evaluation.json" "$support"
+    else
+        stage_inference "$stage" "$source" "$output/evaluation.json"
+    fi
 done
+[[ -f "$run/cagd/summary.json" ]] || \
+    "$python" "$runner" summarize --run "$run" --method cagd
