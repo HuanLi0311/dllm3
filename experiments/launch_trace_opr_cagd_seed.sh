@@ -13,6 +13,7 @@ export CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
 export TOKENIZERS_PARALLELISM=false
 export TORCHINDUCTOR_COMPILE_THREADS=1
 export TRITON_CACHE_DIR=/tmp/trace_opr_triton_lih2511
+export VLLM_USE_V1=0
 mkdir -p "$TRITON_CACHE_DIR"
 
 checkpoint() {
