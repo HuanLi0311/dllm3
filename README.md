@@ -25,17 +25,6 @@ scorers at the paths already fixed in `experiments/trace_opr_cagd.py`.
 
 ## Launch
 
-From `/home/JJ_Group/lih2511/test/dllm/iclr_3`:
-
-Complete serial OPR and CAGD run:
-
-```bash
-TRACE_SEED=3407
-mkdir -p "runs/trace_opr_cagd/seed${TRACE_SEED}"
-nohup bash experiments/launch_trace_opr_cagd_seed.sh "${TRACE_SEED}" \
-  > "runs/trace_opr_cagd/seed${TRACE_SEED}/orchestrator.log" 2>&1 &
-```
-
 CAGD-only run in parallel with an existing OPR run after the shared stage 0
 files have been written:
 
