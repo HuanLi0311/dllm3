@@ -249,6 +249,8 @@ def stage_inference(args) -> None:
         raise ValueError("the final stage has no next-task support")
     from transformers import AutoTokenizer
 
+    # Load the official scorers before vLLM initializes CUDA worker processes.
+    official_tools()
     tokenizer = AutoTokenizer.from_pretrained(args.checkpoint, trust_remote_code=True)
     llm = make_llm(args.checkpoint, args.seed)
     task_ids = list(range(args.stage + 1)) if args.stage == len(TASKS) - 1 else [args.stage]
