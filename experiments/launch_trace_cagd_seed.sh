@@ -62,15 +62,10 @@ if [[ ! -f "$shared/stage_result.json" ]]; then
         --checkpoint "$model" --stage 0 --seed "$seed" --output "$shared"
 fi
 shared_checkpoint=$(checkpoint "$shared")
-opr_support=$shared/support_opr_stage1.jsonl
 cagd_support=$shared/support_cagd_stage1.jsonl
-stage_inference opr 0 "$shared_checkpoint" "$shared/evaluation.json" "$opr_support"
-if [[ ! -f "$cagd_support" ]]; then
-    "$python" "$runner" stage-inference --method cagd --checkpoint "$shared_checkpoint" \
-        --stage 0 --seed "$seed" --next-support "$cagd_support"
-fi
+stage_inference cagd 0 "$shared_checkpoint" "$shared/evaluation.json" "$cagd_support"
 
-for method in opr cagd; do
+for method in cagd; do
     source=$shared_checkpoint
     support=$shared/support_${method}_stage1.jsonl
     for stage in 1 2 3 4 5 6 7; do

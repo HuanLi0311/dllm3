@@ -2,7 +2,9 @@
 
 ## Environment dependencies
 
-- Linux compute node with 8 NVIDIA A100 40GB GPUs
+- Linux compute node with 8 homogeneous CUDA GPUs visible to the job; the
+  current OPR run uses A100 40GB GPUs, while the CAGD-only launcher may run on
+  an 8-GPU H200 or H20 node
 - At least 130GB free storage per seed for the shared, OPR, and CAGD checkpoints
 - Conda environment: `/home/JJ_Group/lih2511/.conda/envs/opr`
 - Python 3.10.21 and CUDA 12.8
@@ -25,9 +27,22 @@ scorers at the paths already fixed in `experiments/trace_opr_cagd.py`.
 
 From `/home/JJ_Group/lih2511/test/dllm/iclr_3`:
 
+Complete serial OPR and CAGD run:
+
 ```bash
 TRACE_SEED=3407
 mkdir -p "runs/trace_opr_cagd/seed${TRACE_SEED}"
 nohup bash experiments/launch_trace_opr_cagd_seed.sh "${TRACE_SEED}" \
   > "runs/trace_opr_cagd/seed${TRACE_SEED}/orchestrator.log" 2>&1 &
+```
+
+CAGD-only run in parallel with an existing OPR run after the shared stage 0
+files have been written:
+
+```bash
+TRACE_SEED=3407
+test -f "runs/trace_opr_cagd/seed${TRACE_SEED}/shared/stage0/stage_result.json"
+test -f "runs/trace_opr_cagd/seed${TRACE_SEED}/shared/stage0/support_cagd_stage1.jsonl"
+nohup bash experiments/launch_trace_cagd_seed.sh "${TRACE_SEED}" \
+  > "runs/trace_opr_cagd/seed${TRACE_SEED}/cagd_orchestrator.log" 2>&1 &
 ```
