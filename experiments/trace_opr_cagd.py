@@ -157,6 +157,7 @@ def make_llm(checkpoint: Path, seed: int):
         seed=seed,
         max_model_len=2560,
         gpu_memory_utilization=0.92,
+        enforce_eager=True,
         trust_remote_code=True,
     )
 
