@@ -84,3 +84,32 @@ scorers and OPR-RU selection rule.  Ordinary current-task and OPR replay SFT
 use the same assistant-only CE/ZeRO runner as the CAGD student, avoiding a
 training-backend confound; this does not alter OPR's generated replay or
 rule-scored selection.  Every correction is recorded in result provenance.
+
+## Full-baseline extension
+
+Status: specified on 2026-09-12 before running the added baselines.
+
+The canonical three-seed matrix additionally contains the following methods.
+All share the model, data, evaluation, optimizer, epoch schedule, and global
+batch size above.
+
+- **Sequential:** ordinary assistant-token SFT on the current task, with no
+  old-task signal.
+- **Vanilla Replay:** ordinary SFT on the current task plus 50 stored gold
+  prompt--answer records, divided evenly over prior tasks. Records are sampled
+  deterministically within task and seed.
+- **SDFT:** a clean-room implementation of the public algorithm at
+  `Continual-Intelligence/Self-Distillation` commit
+  `d77573212fa0a3ae2eeb64b9b44db1c251f75e3e`. At every update, the student
+  samples an on-policy completion at temperature 1. The EMA teacher receives
+  the same query plus its paired expert demonstration, and token-level forward
+  KL is minimized on the student's sampled trajectory. The teacher is updated
+  after every optimizer step with EMA rate 0.01. Task-specific maximum
+  generation lengths match evaluation (one token for C-STANCE and FOMC, 512
+  otherwise). SDFT trains Stage 0 independently; Sequential, Vanilla Replay,
+  OPR-RU, and CAGD share the identical Stage-0 SFT checkpoint.
+
+The SDFT source is used as a specification rather than vendored: its released
+trainer is task-specific, has no TRACE adapter, and carries no explicit license.
+The local runner records the SDFT sampling, EMA, teacher-context, and loss
+settings in every stage result.
