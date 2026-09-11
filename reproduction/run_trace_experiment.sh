@@ -1,6 +1,17 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+if (( $# == 0 )); then
+    read -r -a trace_seeds <<< "${TRACE_SEEDS:-3407}"
+    read -r -a trace_orders <<< "${TRACE_ORDERS:-canonical}"
+    for trace_order in "${trace_orders[@]}"; do
+        for trace_seed in "${trace_seeds[@]}"; do
+            "$0" "$trace_seed" "$trace_order"
+        done
+    done
+    exit 0
+fi
+
 seed=${1:-3407}
 order=${2:-canonical}
 case "$order" in
@@ -9,12 +20,15 @@ case "$order" in
     *) echo "task order must be canonical or reverse" >&2; exit 2 ;;
 esac
 
-repo=/home/JJ_Group/lih2511/test/dllm
-python=/home/JJ_Group/lih2511/.conda/envs/opr/bin/python
-torchrun=/home/JJ_Group/lih2511/.conda/envs/opr/bin/torchrun
-runner=$repo/iclr_3/experiments/trace_opr_cagd.py
-model=/home/JJ_Group/lih2511/.cache/huggingface/hub/models--Qwen--Qwen3-4B-Instruct-2507/snapshots/cdbee75f17c01a7cc42f958dc650907174af0554
-run=$repo/iclr_3/runs/trace_opr_cagd/seed${seed}${order_suffix}
+root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+python=${PAPER_PYTHON:-/home/JJ_Group/lih2511/.conda/envs/opr/bin/python}
+torchrun=${PAPER_TORCHRUN:-/home/JJ_Group/lih2511/.conda/envs/opr/bin/torchrun}
+runner=$root/reproduction/trace.py
+model=${TRACE_MODEL:-/home/JJ_Group/lih2511/.cache/huggingface/hub/models--Qwen--Qwen3-4B-Instruct-2507/snapshots/cdbee75f17c01a7cc42f958dc650907174af0554}
+run_base=${TRACE_RUN_ROOT:-$root/runs/reproduction/trace}
+run=$run_base/seed${seed}${order_suffix}
+trainable=${TRAINABLE_SCOPE:-all}
+case "$trainable" in all|last_block) ;; *) echo "TRAINABLE_SCOPE must be all or last_block" >&2; exit 2 ;; esac
 runner_args=(--task-order "$order")
 read -r -a methods <<< "${TRACE_METHODS:-sequential replay sdft opr cagd}"
 
@@ -25,13 +39,14 @@ for method in "${methods[@]}"; do
     esac
 done
 
-export CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
+export CUDA_VISIBLE_DEVICES=${TRACE_GPUS:-0,1,2,3,4,5,6,7}
+nproc=$(awk -F, '{print NF}' <<< "$CUDA_VISIBLE_DEVICES")
 export TOKENIZERS_PARALLELISM=false
 export TORCHINDUCTOR_COMPILE_THREADS=1
 export TRITON_CACHE_DIR=/tmp/trace_opr_cagd_triton_lih2511
 export VLLM_ENABLE_V1_MULTIPROCESSING=0
 mkdir -p "$TRITON_CACHE_DIR" "$run"
-cd "$repo"
+cd "$root"
 "$python" "$runner" "${runner_args[@]}" self-check
 
 checkpoint() {
@@ -55,9 +70,9 @@ train_stage() {
         echo "incomplete output requires inspection: $output" >&2
         exit 1
     fi
-    local args=("train-$method" --checkpoint "$source" --stage "$stage" --seed "$seed" --output "$output")
+    local args=("train-$method" --checkpoint "$source" --stage "$stage" --seed "$seed" --trainable "$trainable" --output "$output")
     [[ -z "$support" ]] || args+=(--support "$support")
-    "$torchrun" --standalone --nproc_per_node=8 "$runner" "${runner_args[@]}" "${args[@]}"
+    "$torchrun" --standalone --nproc_per_node="$nproc" "$runner" "${runner_args[@]}" "${args[@]}"
 }
 
 stage_inference() {
@@ -123,4 +138,3 @@ for method in "${methods[@]}"; do
         run_shared_sft_method "$method"
     fi
 done
-
