@@ -57,6 +57,6 @@ run_cell reverse seq 3409 2
 run_cell reverse gd 3409 3
 wait_batch || exit 1
 
-"$python" experiments/plot_table7_training_loss.py \
+"$python" experiments/plot_table7_loss_dynamics.py \
   --root "$root" \
   --output ../assets/iclr_3/figures/situ_glu_redraw/table7_loss_dynamics

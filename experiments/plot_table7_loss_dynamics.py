@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Plot Table 7 held-out loss throughout the complete training matrix."""
+"""Render Table 7 held-out loss throughout the complete training matrix."""
 
 import argparse
 import json
