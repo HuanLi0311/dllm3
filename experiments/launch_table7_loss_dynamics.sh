@@ -23,7 +23,7 @@ run_cell() {
       "$python" experiments/dllm_rank1_multitask.py \
       --final-protocol --method "$method" --order "$order" \
       --eval-mc-samples 32 --seed "$seed" --generation-seed "$seed" \
-      --record-step-loss --output "$output"
+      --record-step-loss --record-eval-loss-every 100 --output "$output"
     code=$?
     printf '%s\n' "$code" >"$root/logs/$stem.exit"
     exit "$code"
@@ -58,4 +58,4 @@ wait_batch || exit 1
 
 "$python" experiments/plot_table7_training_loss.py \
   --root "$root" \
-  --output ../assets/iclr_3/figures/situ_glu_redraw/table7_training_loss
+  --output ../assets/iclr_3/figures/situ_glu_redraw/table7_loss_dynamics
