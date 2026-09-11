@@ -11,7 +11,7 @@ import shlex
 import subprocess
 import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 
@@ -67,6 +67,7 @@ class Cell:
     name: str
     command: tuple[str, ...]
     output: Path
+    dimensions: dict[str, object] = field(default_factory=dict)
 
 
 def split_words(value: str) -> list[str]:
@@ -171,6 +172,30 @@ def run_cells(cells: list[Cell], args) -> None:
                 failures.append(f"{cell.name}: {error}")
     if failures:
         raise RuntimeError("\n".join(failures))
+
+
+def summarize_cells(experiment: str, cells: list[Cell], output: Path, resume: bool = False) -> None:
+    if output.exists():
+        if resume and valid_result(output):
+            return
+        raise FileExistsError(f"refusing existing summary: {output}")
+    rows = []
+    for cell in cells:
+        payload = json.loads(cell.output.read_text())
+        if payload.get("status", "ok") != "ok" or not isinstance(payload.get("summary"), dict):
+            raise ValueError(f"invalid or incomplete cell: {cell.output}")
+        metadata = payload.get("metadata", {})
+        rows.append({
+            **cell.dimensions,
+            "cell": cell.name,
+            "source": str(cell.output.resolve()),
+            "trainable": metadata.get("trainable"),
+            "trainable_parameter_count": metadata.get("trainable_parameter_count"),
+            **payload["summary"],
+        })
+    result = {"schema_version": 2, "status": "ok", "experiment": experiment, "rows": rows}
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(json.dumps(result, indent=2) + "\n")
 
 
 def write_model_inventory(model: Path, output: Path) -> None:
