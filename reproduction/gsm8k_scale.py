@@ -674,7 +674,7 @@ def _self_check() -> None:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--model-id", choices=tuple(MODEL_SPECS), required=True)
+    parser.add_argument("--model-id", choices=tuple(MODEL_SPECS))
     parser.add_argument("--model-path", type=Path)
     parser.add_argument("--output", type=Path)
     parser.add_argument("--method", choices=METHODS, default="cagd")
@@ -705,9 +705,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--formal", action="store_true")
     parser.add_argument("--self-check", action="store_true")
     args = parser.parse_args()
+    if args.self_check:
+        return args
+    if args.model_id is None:
+        parser.error("--model-id is required")
     if args.generation_batch_size is None:
         args.generation_batch_size = 16 if args.model_id.startswith("qwen") else 8
-    if not args.self_check and args.output is None:
+    if args.output is None:
         parser.error("--output is required")
     return args
 
