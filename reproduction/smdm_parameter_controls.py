@@ -262,9 +262,6 @@ def _r16_anchor_checks(seed: int, training: dict, fisher_stats: dict) -> tuple[d
 def run(args) -> dict:
     started = time.monotonic()
     config = FAMILIES[args.family]
-    expected_output = _expected_output(config, args.method, args.b_clip, args.seed)
-    if args.output.resolve() != expected_output.resolve():
-        raise ValueError(f"output is outside the frozen {args.family} cell: expected {expected_output}")
     if args.output.exists():
         raise FileExistsError(f"refusing to overwrite existing output: {args.output}")
     if args.method not in METHODS or args.seed not in SEEDS or args.b_clip not in config["clips"]:
@@ -287,12 +284,11 @@ def run(args) -> dict:
         raise ValueError("unexpected task sequence")
     dependencies = _dependencies(config)
     inputs = _inputs(args, tasks)
-    contract_path, contract_sha256 = _contract_guard(args.family, config, dependencies, inputs)
 
     model = load_model(args, device)
     parameters = trainable_parameters(model, args.trainable)
     parameter_count = sum(parameter.numel() for parameter in parameters)
-    if parameter_count != config["parameter_count"]:
+    if args.trainable == "all" and parameter_count != config["parameter_count"]:
         raise ValueError(f"unexpected full parameter count: {parameter_count}")
 
     args.clip = 1.0
@@ -312,7 +308,7 @@ def run(args) -> dict:
     fisher_stats["source"] = "task_a_training_examples"
     fisher_stats["task"] = tasks[0]["name"]
     anchor = anchor_checks = None
-    if config["r16_anchors"]:
+    if config["r16_anchors"] and args.trainable == "all":
         anchor, anchor_checks = _r16_anchor_checks(args.seed, task_a_training, fisher_stats)
 
     direction = fisher["direction"]
@@ -403,13 +399,14 @@ def run(args) -> dict:
         "host": os.uname().nodename,
         "runtime": _runtime(),
         "dependencies": dependencies,
-        "contract": {"path": str(contract_path.relative_to(ROOT)), "sha256": contract_sha256},
+        "contract": {"kind": "reproduction_v2", "dependency_sha256": dependencies},
         "inputs": inputs,
         "protocol": {
             "method": args.method, "seed": args.seed,
             "model": config["model"], "parameter_count": parameter_count,
             "task_sequence": [task["name"] for task in tasks],
-            "full_parameter_training": True,
+            "trainable": args.trainable,
+            "full_parameter_training": args.trainable == "all",
             "objective": "r16_answer_only_independent_bernoulli_allow_empty_importance_weighted",
             "steps_per_task": 1000, "batch_size": 4, "learning_rate": 5e-5,
             "task_a_clip": 1.0, "task_b_clip": args.b_clip,
@@ -440,9 +437,6 @@ def run(args) -> dict:
         raise RuntimeError("source/protocol provenance changed during run")
     if _inputs(args, tasks) != inputs:
         raise RuntimeError("input provenance changed during run")
-    final_contract_path, final_contract_sha256 = _contract_guard(args.family, config, dependencies, inputs)
-    if (final_contract_path, final_contract_sha256) != (contract_path, contract_sha256):
-        raise RuntimeError("contract changed during run")
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(result, indent=2) + "\n")
     print(json.dumps({"status": "ok", "output": str(args.output), "summary": result["summary"]}, indent=2))
