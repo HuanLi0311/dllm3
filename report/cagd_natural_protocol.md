@@ -83,7 +83,7 @@ Primary endpoints are final average held-out answer loss, past-task forgetting
 final-task loss.  Mean, SEM, every seed, and paired differences are reported;
 lower is better.  Answer-token accuracy is secondary.
 
-The primary contrasts are CAGD minus hard generated replay and CAGD minus
+The primary contrasts are CAGD minus Hard replay and CAGD minus
 Sequential within backend and seed.  A retention gain is interpreted only
 alongside final-task loss.  Cross-backend agreement concerns direction, not
 effect-size equality, because the objectives and trainable parameter fractions
