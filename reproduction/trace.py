@@ -18,7 +18,6 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 DATA = ROOT / "data/trace_opr"
-RUNS = ROOT / "runs/trace_opr_cagd"
 MODEL = Path(
     "/home/JJ_Group/lih2511/.cache/huggingface/hub/"
     "models--Qwen--Qwen3-4B-Instruct-2507/snapshots/"
