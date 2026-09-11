@@ -8,6 +8,7 @@ import json
 import os
 import queue
 import shlex
+import statistics
 import subprocess
 import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -193,12 +194,13 @@ def summarize_cells(
             return
         raise FileExistsError(f"refusing existing summary: {output}")
     rows = []
+    dimension_names = sorted({key for cell in cells for key in cell.dimensions})
     for cell in cells:
         payload = json.loads(cell.output.read_text())
         if payload.get("status", "ok") != "ok" or not isinstance(payload.get("summary"), dict):
             raise ValueError(f"invalid or incomplete cell: {cell.output}")
         metadata = payload.get("metadata") or payload.get("protocol", {})
-        rows.append({
+        row = {
             **cell.dimensions,
             "cell": cell.name,
             "source": str(cell.output.resolve()),
@@ -208,10 +210,94 @@ def summarize_cells(
             ),
             **payload["summary"],
             **{key: payload[key] for key in include},
-        })
-    result = {"schema_version": 2, "status": "ok", "experiment": experiment, "rows": rows}
+        }
+        losses = row.get("final_task_losses")
+        if isinstance(losses, list) and losses:
+            row.setdefault("final_task_loss", losses[-1])
+            if row.get("order") in ("forward", "order_free"):
+                row["fixed_task_loss"] = losses[-1]
+            elif row.get("order") == "reverse":
+                row["fixed_task_loss"] = losses[0]
+        rows.append(row)
+    aggregates, differences = aggregate_rows(rows, dimension_names)
+    result = {
+        "schema_version": 2,
+        "status": "ok",
+        "experiment": experiment,
+        "dimension_names": dimension_names,
+        "rows": rows,
+        "aggregates": aggregates,
+        "paired_differences": differences,
+    }
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(result, indent=2) + "\n")
+
+
+def _estimate(values: list[float]) -> dict[str, float | int]:
+    return {
+        "mean": statistics.fmean(values),
+        "sem": statistics.stdev(values) / len(values) ** 0.5 if len(values) > 1 else 0.0,
+        "n": len(values),
+    }
+
+
+def _numeric_metrics(rows: list[dict], excluded: set[str]) -> dict[str, dict]:
+    metrics = {}
+    common = set.intersection(*(set(row) for row in rows)) - excluded
+    for key in sorted(common):
+        values = [row[key] for row in rows]
+        if all(isinstance(value, (int, float)) and not isinstance(value, bool) for value in values):
+            metrics[key] = _estimate([float(value) for value in values])
+        elif all(isinstance(value, list) and value and all(isinstance(x, (int, float)) for x in value) for value in values):
+            widths = {len(value) for value in values}
+            if len(widths) == 1:
+                metrics[key] = [_estimate([float(value[index]) for value in values]) for index in range(len(values[0]))]
+    return metrics
+
+
+def aggregate_rows(rows: list[dict], dimension_names: list[str]) -> tuple[list[dict], list[dict]]:
+    group_names = [name for name in dimension_names if name != "seed"]
+    grouped = {}
+    for row in rows:
+        key = tuple((name, row.get(name)) for name in group_names)
+        grouped.setdefault(key, []).append(row)
+    excluded = set(dimension_names) | {"cell", "source", "trainable", "trainable_parameter_count"}
+    aggregates = [
+        {**dict(key), "metrics": _numeric_metrics(group, excluded)}
+        for key, group in sorted(grouped.items(), key=lambda item: repr(item[0]))
+    ]
+
+    paired = []
+    if "method" in dimension_names and "seed" in dimension_names:
+        base_names = [name for name in dimension_names if name not in ("method", "seed")]
+        bases = {}
+        for row in rows:
+            key = tuple((name, row.get(name)) for name in base_names)
+            bases.setdefault(key, {}).setdefault(row["method"], {})[row["seed"]] = row
+        for key, methods in sorted(bases.items(), key=lambda item: repr(item[0])):
+            for left in sorted(methods):
+                for right in sorted(methods):
+                    if left == right:
+                        continue
+                    common_seeds = sorted(set(methods[left]) & set(methods[right]))
+                    deltas = []
+                    for seed in common_seeds:
+                        left_row, right_row = methods[left][seed], methods[right][seed]
+                        common_metrics = set(left_row) & set(right_row) - excluded
+                        deltas.append({
+                            metric: float(left_row[metric]) - float(right_row[metric])
+                            for metric in common_metrics
+                            if isinstance(left_row[metric], (int, float))
+                            and not isinstance(left_row[metric], bool)
+                            and isinstance(right_row[metric], (int, float))
+                            and not isinstance(right_row[metric], bool)
+                        })
+                    if deltas:
+                        paired.append({
+                            **dict(key), "left_method": left, "right_method": right,
+                            "metrics": _numeric_metrics(deltas, set()),
+                        })
+    return aggregates, paired
 
 
 def self_check() -> None:
@@ -227,6 +313,15 @@ def self_check() -> None:
         offenders.extend(f"{path.name}: {token}" for token in forbidden if token in text)
     assert not offenders, "legacy code dependency: " + ", ".join(offenders)
     assert SMDM_MODELS and QWEN_MODELS and all(path.is_absolute() for path in (PYTHON, AR_PYTHON, SMDM_PYTHON))
+    mock = [
+        {"model": "m", "method": "a", "seed": 1, "score": 2.0},
+        {"model": "m", "method": "a", "seed": 2, "score": 4.0},
+        {"model": "m", "method": "b", "seed": 1, "score": 1.0},
+        {"model": "m", "method": "b", "seed": 2, "score": 3.0},
+    ]
+    aggregates, paired = aggregate_rows(mock, ["method", "model", "seed"])
+    assert next(row for row in aggregates if row["method"] == "a")["metrics"]["score"]["mean"] == 3.0
+    assert next(row for row in paired if row["left_method"] == "a")["metrics"]["score"]["mean"] == 1.0
     print(json.dumps({"self_check": "ok", "independent_files": len(list(Path(__file__).parent.glob("*")))}))
 
 
