@@ -8,7 +8,7 @@ __pycache__/
 *.pt
 *.npy
 *.f16
-
+/results
 # Raw runs are generated locally; only compact published artifacts are tracked.
 /runs/*
 !/runs/commands.md
