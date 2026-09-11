@@ -14,6 +14,8 @@ smdm_models="${SMDM_MODELS:-smdm_219m smdm_1.14b}"
 qwen_models="${QWEN_MODELS:-qwen3_0.6b qwen3_1.7b qwen3_4b}"
 primary_smdm="${PRIMARY_SMDM_MODEL:-smdm_219m}"
 primary_qwen="${PRIMARY_QWEN_MODEL:-qwen3_0.6b}"
+natural_smdm_models="${NATURAL_SMDM_MODELS:-$primary_smdm}"
+natural_qwen_models="${NATURAL_QWEN_MODELS:-$primary_qwen}"
 extra=()
 [[ "${RESUME:-0}" == 1 ]] && extra+=(--resume)
 [[ "${1:-}" == --dry-run ]] && extra+=(--dry-run)
@@ -38,7 +40,7 @@ run_table table_cagd_deployed_components --model "$primary_smdm"
 run_table table_cagd_fresh --model "$primary_smdm"
 run_table figure_loss_dynamics --model "$primary_smdm"
 run_table figure_anchor_budget --model "$primary_smdm" --seeds "${ANCHOR_SEEDS:-3407}"
-run_table table_cagd_natural --smdm-models "$smdm_models" --qwen-models "$qwen_models"
+run_table table_cagd_natural --smdm-models "$natural_smdm_models" --qwen-models "$natural_qwen_models"
 run_table figure_qwen_cagd --models "$qwen_models"
 run_table table_gsm8k_behavior --smdm-models "$smdm_models" --qwen-models "$qwen_models"
 run_table tables_qualitative --model "$primary_qwen" --seeds "${QUALITATIVE_SEED:-3407}"

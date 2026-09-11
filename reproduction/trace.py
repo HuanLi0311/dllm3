@@ -1010,6 +1010,26 @@ def summarize(args) -> None:
     write_json(method_root / "summary.json", summary)
 
 
+def summarize_comparison(args) -> None:
+    rows = []
+    for method in args.methods:
+        summary = json.loads((args.run / method / "summary.json").read_text(encoding="utf-8"))
+        rows.append(summary)
+    result = {
+        "schema_version": 2,
+        "status": "ok",
+        "experiment": "trace_comparison",
+        "task_order": list(TASKS),
+        "rows": rows,
+    }
+    output = args.run / "summary.json"
+    if output.exists():
+        if json.loads(output.read_text(encoding="utf-8")) != result:
+            raise ValueError(f"existing comparison summary differs: {output}")
+        return
+    write_json(output, result)
+
+
 def self_check() -> None:
     assert allocations(50, 3) == [17, 17, 16]
     assert allocations(50, 7) == [8, 7, 7, 7, 7, 7, 7]
@@ -1090,6 +1110,11 @@ def parser() -> argparse.ArgumentParser:
     summary = sub.add_parser("summarize")
     summary.add_argument("--run", type=Path, required=True)
     summary.add_argument("--method", choices=("sequential", "replay", "sdft", "opr", "cagd"), required=True)
+    comparison = sub.add_parser("summarize-comparison")
+    comparison.add_argument("--run", type=Path, required=True)
+    comparison.add_argument(
+        "--methods", nargs="+", choices=("sequential", "replay", "sdft", "opr", "cagd"), required=True
+    )
     return result
 
 
@@ -1110,6 +1135,8 @@ def main() -> None:
         train_sdft(args)
     elif args.command == "summarize":
         summarize(args)
+    elif args.command == "summarize-comparison":
+        summarize_comparison(args)
 
 
 if __name__ == "__main__":

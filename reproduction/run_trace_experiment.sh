@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+if [[ "${1:-}" == --dry-run ]]; then
+    export TRACE_DRY_RUN=1
+    shift
+fi
+
 if (( $# == 0 )); then
     read -r -a trace_seeds <<< "${TRACE_SEEDS:-3407}"
     read -r -a trace_orders <<< "${TRACE_ORDERS:-canonical}"
@@ -38,6 +43,12 @@ for method in "${methods[@]}"; do
         *) echo "unknown TRACE method: $method" >&2; exit 2 ;;
     esac
 done
+
+if [[ "${TRACE_DRY_RUN:-0}" == 1 ]]; then
+    printf 'seed=%s order=%s methods=%s trainable=%s gpus=%s output=%s\n' \
+        "$seed" "$order" "${methods[*]}" "$trainable" "${TRACE_GPUS:-0,1,2,3,4,5,6,7}" "$run"
+    exit 0
+fi
 
 export CUDA_VISIBLE_DEVICES=${TRACE_GPUS:-0,1,2,3,4,5,6,7}
 nproc=$(awk -F, '{print NF}' <<< "$CUDA_VISIBLE_DEVICES")
@@ -138,3 +149,6 @@ for method in "${methods[@]}"; do
         run_shared_sft_method "$method"
     fi
 done
+
+[[ -f "$run/summary.json" ]] || \
+    "$python" "$runner" "${runner_args[@]}" summarize-comparison --run "$run" --methods "${methods[@]}"

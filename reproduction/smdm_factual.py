@@ -92,10 +92,10 @@ def _fact_counts(rows) -> dict[str, int]:
 
 def _dependency_hashes() -> dict[str, str]:
     names = (
-        "continual_benchmark.py",
-        "continual_mdm.py",
-        "continual_reverse.py",
-        "experiments/dllm_rank1_transfer.py",
+        "reproduction/continual_benchmark.py",
+        "reproduction/smdm_backend.py",
+        "reproduction/continual_reverse.py",
+        "reproduction/smdm_transfer.py",
     )
     return {name: _sha256(ROOT / name) for name in names}
 
