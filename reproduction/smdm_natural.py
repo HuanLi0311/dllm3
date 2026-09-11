@@ -256,6 +256,8 @@ def run(args) -> dict:
             "checkpoint": str(args.checkpoint.resolve()),
             "checkpoint_sha256": _sha256(args.checkpoint),
             "tokenizer_sha256": _tree_sha256(args.tokenizer),
+            "trainable": args.trainable,
+            "trainable_parameter_count": sum(parameter.numel() for parameter in parameters),
             "steps_per_task": args.steps_per_task,
             "batch_size": args.batch_size,
             "eval_mc_samples": args.eval_mc_samples,

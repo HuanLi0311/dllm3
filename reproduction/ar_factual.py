@@ -33,6 +33,7 @@ METHODS = ("seq", "gd", "rank1_gd", "diag_gd")
 SPECS = {
     "validation": (("d2p", 0, 2), ("p2d", 2, 2)),
     "formal": (("d2p", 8, 4), ("p2d", 12, 4), ("d2p", 16, 4), ("p2d", 20, 4)),
+    "paper": (("d2p", 8, 4), ("p2d", 12, 4), ("d2p", 16, 4), ("p2d", 20, 4)),
 }
 
 

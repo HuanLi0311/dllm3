@@ -40,6 +40,23 @@ TASKS = CANONICAL_TASKS
 EPOCHS = CANONICAL_EPOCHS
 MAX_LENGTH = 2048
 BUFFER_SIZE = 50
+
+
+def select_trainable_parameters(model, mode: str):
+    for parameter in model.parameters():
+        parameter.requires_grad_(False)
+    if mode == "all":
+        selected = list(model.named_parameters())
+    elif mode == "last_block":
+        prefix = f"model.layers.{model.config.num_hidden_layers - 1}."
+        selected = [(name, parameter) for name, parameter in model.named_parameters() if name.startswith(prefix)]
+    else:
+        raise ValueError(f"unknown trainable scope: {mode}")
+    if not selected:
+        raise RuntimeError(f"no parameters selected for {mode}")
+    for _, parameter in selected:
+        parameter.requires_grad_(True)
+    return selected
 MICRO_BATCH = 4
 GRADIENT_ACCUMULATION = 4
 SDFT_MICRO_BATCH = 1
@@ -388,6 +405,7 @@ def train_sft(args) -> None:
     student = AutoModelForCausalLM.from_pretrained(
         args.checkpoint, torch_dtype=torch.bfloat16, low_cpu_mem_usage=True, trust_remote_code=True, attn_implementation="sdpa"
     )
+    trainable = select_trainable_parameters(student, args.trainable)
     student.config.use_cache = False
     student.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
 
@@ -465,7 +483,8 @@ def train_sft(args) -> None:
                 "eligible_training_examples": len(encoded),
                 "current_examples_before_filter": 5000,
                 "support_examples_before_filter": 0 if args.support is None else len(read_jsonl(args.support)),
-                "trainable_parameters": sum(parameter.numel() for parameter in student.parameters()),
+                "trainable_scope": args.trainable,
+                "trainable_parameters": sum(parameter.numel() for _, parameter in trainable),
             },
         )
     trainer.accelerator.wait_for_everyone()
@@ -594,6 +613,7 @@ def train_cagd(args) -> None:
     student = AutoModelForCausalLM.from_pretrained(
         args.checkpoint, torch_dtype=torch.bfloat16, low_cpu_mem_usage=True, trust_remote_code=True, attn_implementation="sdpa"
     )
+    trainable = select_trainable_parameters(student, args.trainable)
     student.config.use_cache = False
     student.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
 
@@ -705,7 +725,8 @@ def train_cagd(args) -> None:
                 "peak_gpu_bytes": int(peak.item()),
                 "eligible_current_examples": len(current),
                 "anchor_examples": len(anchors),
-                "trainable_parameters": sum(parameter.numel() for parameter in student.parameters()),
+                "trainable_scope": args.trainable,
+                "trainable_parameters": sum(parameter.numel() for _, parameter in trainable),
             },
         )
     trainer.accelerator.wait_for_everyone()
@@ -788,6 +809,7 @@ def train_sdft(args) -> None:
         trust_remote_code=True,
         attn_implementation="sdpa",
     )
+    trainable = select_trainable_parameters(student, args.trainable)
     student.config.use_cache = False
     student.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
 
@@ -949,7 +971,8 @@ def train_sdft(args) -> None:
                 "elapsed_seconds": time.time() - started,
                 "peak_gpu_bytes": int(peak.item()),
                 "eligible_training_examples": len(encoded),
-                "trainable_parameters": sum(parameter.numel() for parameter in student.parameters()),
+                "trainable_scope": args.trainable,
+                "trainable_parameters": sum(parameter.numel() for _, parameter in trainable),
                 "student_sampling_temperature": 1.0,
                 "student_sampling_top_p": 1.0,
                 "student_sampling_top_k": 0,
@@ -1044,6 +1067,7 @@ def parser() -> argparse.ArgumentParser:
         sft.add_argument("--stage", type=int, choices=range(8), required=True)
         sft.add_argument("--seed", type=int, default=3407)
         sft.add_argument("--support", type=Path)
+        sft.add_argument("--trainable", choices=("last_block", "all"), default="all")
         sft.add_argument("--output", type=Path, required=True)
 
     cagd = sub.add_parser("train-cagd")
@@ -1051,6 +1075,7 @@ def parser() -> argparse.ArgumentParser:
     cagd.add_argument("--stage", type=int, choices=range(1, 8), required=True)
     cagd.add_argument("--seed", type=int, default=3407)
     cagd.add_argument("--support", type=Path)
+    cagd.add_argument("--trainable", choices=("last_block", "all"), default="all")
     cagd.add_argument("--smoke", action="store_true")
     cagd.add_argument("--output", type=Path, required=True)
 
@@ -1058,6 +1083,7 @@ def parser() -> argparse.ArgumentParser:
     sdft.add_argument("--checkpoint", type=Path, required=True)
     sdft.add_argument("--stage", type=int, choices=range(8), required=True)
     sdft.add_argument("--seed", type=int, default=3407)
+    sdft.add_argument("--trainable", choices=("last_block", "all"), default="all")
     sdft.add_argument("--smoke", action="store_true")
     sdft.add_argument("--output", type=Path, required=True)
 
@@ -1088,4 +1114,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
