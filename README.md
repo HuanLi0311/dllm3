@@ -3,8 +3,7 @@
 ## Environment dependencies
 
 - Linux compute node with 8 homogeneous CUDA GPUs visible to the job; the
-  current OPR run uses A100 40GB GPUs, while the CAGD-only launcher may run on
-  an 8-GPU H200 or H20 node
+  launcher supports the current 8-GPU A100 40GB, H200, or H20 nodes
 - At least 130GB free storage per seed for the shared, OPR, and CAGD checkpoints
 - Conda environment: `/home/JJ_Group/lih2511/.conda/envs/opr`
 - Python 3.10.21 and CUDA 12.8
@@ -25,13 +24,24 @@ scorers at the paths already fixed in `experiments/trace_opr_cagd.py`.
 
 ## Launch
 
-CAGD-only run in parallel with an existing OPR run after the shared stage 0
-files have been written:
+Start a fresh reverse-order run of both OPR-RU and CAGD. The launcher trains
+all eight stages, evaluates each task when it is acquired, evaluates all eight
+tasks after the final stage, and writes a summary containing the per-task
+scores, ACC, and BWT for each method. Run from the `iclr_3` directory:
 
 ```bash
+cd /home/JJ_Group/lih2511/test/dllm/iclr_3
 TRACE_SEED=3407
-test -f "runs/trace_opr_cagd/seed${TRACE_SEED}/shared/stage0/stage_result.json"
-test -f "runs/trace_opr_cagd/seed${TRACE_SEED}/shared/stage0/support_cagd_stage1.jsonl"
-nohup bash experiments/launch_trace_cagd_seed.sh "${TRACE_SEED}" \
-  > "runs/trace_opr_cagd/seed${TRACE_SEED}/cagd_orchestrator.log" 2>&1 &
+TRACE_RUN="runs/trace_opr_cagd/seed${TRACE_SEED}_reverse"
+test ! -e "$TRACE_RUN"
+mkdir -p "$TRACE_RUN"
+nohup env TRACE_METHODS="opr cagd" \
+  bash experiments/launch_trace_opr_cagd_seed.sh "$TRACE_SEED" reverse \
+  > "$TRACE_RUN/orchestrator.log" 2>&1 &
 ```
+
+The reverse task order is `20Minuten`, `NumGLUE-ds`, `NumGLUE-cm`,
+`ScienceQA`, `Py150`, `MeetingBank`, `FOMC`, and `C-STANCE`. OPR-RU and CAGD
+share stage 0 and are then run sequentially so their results use the same
+initial checkpoint. The fresh-run guard above prevents an earlier result
+directory from being reused.
