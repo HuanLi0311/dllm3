@@ -738,6 +738,7 @@ def _self_check() -> None:
         max_length=128, model=170, mask_min=1e-3, mask_max=1.0, trainable="all",
         distill_weight=1.0, distill_temperature=1.0, ewc_lambda=0.0, lr=5e-5,
         clip=1.0, method="gd", seed=3407, generation_seed=3407,
+        record_step_loss=False,
         final_protocol=True, fresh_protocol=False,
         cagd_protocol=False, cagd_fresh_protocol=False, cagd_two_task_protocol=False,
     )
@@ -861,6 +862,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--reverse-temperature", type=float, default=0.0)
     parser.add_argument("--generation-seed", type=int)
     parser.add_argument("--show-predictions", action="store_true")
+    parser.add_argument("--record-step-loss", action="store_true")
     parser.add_argument("--self-check", action="store_true")
     parser.add_argument("--final-protocol", action="store_true")
     parser.add_argument("--fresh-protocol", action="store_true")
