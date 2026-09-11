@@ -290,7 +290,7 @@ def run(args) -> dict:
     contract_path, contract_sha256 = _contract_guard(args.family, config, dependencies, inputs)
 
     model = load_model(args, device)
-    parameters = trainable_parameters(model, "all")
+    parameters = trainable_parameters(model, args.trainable)
     parameter_count = sum(parameter.numel() for parameter in parameters)
     if parameter_count != config["parameter_count"]:
         raise ValueError(f"unexpected full parameter count: {parameter_count}")
@@ -487,6 +487,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--family", choices=tuple(FAMILIES), required=False, default="r23")
     parser.add_argument("--method", choices=METHODS, default="gd")
+    parser.add_argument("--trainable", choices=("last_block", "all"), default="all")
     parser.add_argument("--b-clip", type=float, choices=CLIPS, default=1.0)
     parser.add_argument("--seed", type=int, choices=SEEDS, default=3407)
     parser.add_argument("--checkpoint", type=Path)
@@ -508,7 +509,6 @@ def parse_args() -> argparse.Namespace:
     args.tasks = 2
     args.group_count = 4
     args.fisher_per_fact = 10
-    args.trainable = "all"
     args.max_length = 128
     args.batch_size = 4
     args.eval_batch_size = 4

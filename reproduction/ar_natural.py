@@ -251,7 +251,7 @@ def run(args) -> dict:
         args.model, local_files_only=True, dtype=torch.bfloat16, attn_implementation="sdpa"
     ).to(device)
     model.config.use_cache = False
-    trainable_names, parameters = _select_parameters(model)
+    trainable_names, parameters = _select_parameters(model, args.trainable)
     print(f"method={args.method} order={args.order} trainable={sum(p.numel() for p in parameters):,}", flush=True)
     stages = []
     for stage, task in enumerate(tasks):
@@ -308,7 +308,7 @@ def run(args) -> dict:
             "seed": args.seed,
             "task_sequence": [task["name"] for task in tasks],
             "model": str(args.model.resolve()),
-            "trainable": "last_transformer_block",
+            "trainable": args.trainable,
             "trainable_names": trainable_names,
             "trainable_parameter_count": sum(parameter.numel() for parameter in parameters),
             "steps_per_task": args.steps_per_task,
@@ -366,6 +366,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--model", type=Path, default=DEFAULT_MODEL)
     parser.add_argument("--output", type=Path)
     parser.add_argument("--method", choices=METHODS, default="cagd")
+    parser.add_argument("--trainable", choices=("last_block", "all"), default="last_block")
     parser.add_argument("--order", choices=("forward", "reverse"), default="forward")
     parser.add_argument("--seed", type=int, default=3407)
     parser.add_argument("--steps-per-task", type=int, default=1000)

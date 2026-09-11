@@ -235,7 +235,7 @@ def run(args) -> dict:
         args.model, local_files_only=True, dtype=torch.bfloat16, attn_implementation="sdpa"
     ).to(device)
     model.config.use_cache = False
-    trainable_names, parameters = _select_parameters(model)
+    trainable_names, parameters = _select_parameters(model, args.trainable)
     source_hash = _sha256(Path(__file__))
     protocol_hash = _sha256(PROTOCOL)
     dependency_hashes = {str(path.relative_to(ROOT)): _sha256(path) for path in DEPENDENCIES}
@@ -304,7 +304,7 @@ def run(args) -> dict:
             "method": args.method,
             "seed": args.seed,
             "task_sequence": list(TASKS),
-            "trainable": "last_transformer_block",
+            "trainable": args.trainable,
             "trainable_names": trainable_names,
             "trainable_parameter_count": sum(parameter.numel() for parameter in parameters),
             "benchmark_count": len(benchmark_rows),
@@ -350,6 +350,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--model", type=Path, default=DEFAULT_MODEL)
     parser.add_argument("--output", type=Path)
     parser.add_argument("--method", choices=METHODS, default="cagd")
+    parser.add_argument("--trainable", choices=("last_block", "all"), default="last_block")
     parser.add_argument("--seed", type=int, default=3407)
     parser.add_argument("--steps-per-task", type=int, default=1000)
     parser.add_argument("--batch-size", type=int, default=2)

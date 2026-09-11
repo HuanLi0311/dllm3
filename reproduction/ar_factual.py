@@ -156,11 +156,16 @@ def _distillation_loss(student, teacher, rows, pad_id, device, temperature):
     return F.kl_div(log_probabilities, probabilities, reduction="batchmean") * temperature**2
 
 
-def _select_parameters(model):
+def _select_parameters(model, mode="last_block"):
     for parameter in model.parameters():
         parameter.requires_grad_(False)
     prefix = f"model.layers.{model.config.num_hidden_layers - 1}."
-    selected = [(name, parameter) for name, parameter in model.named_parameters() if name.startswith(prefix)]
+    if mode == "all":
+        selected = list(model.named_parameters())
+    elif mode == "last_block":
+        selected = [(name, parameter) for name, parameter in model.named_parameters() if name.startswith(prefix)]
+    else:
+        raise ValueError(f"unknown trainable scope: {mode}")
     if not selected:
         raise ValueError(f"no parameters under {prefix}")
     for _, parameter in selected:
@@ -476,7 +481,7 @@ def run(args):
         args.model, local_files_only=True, dtype=torch.bfloat16, attn_implementation="sdpa"
     ).to(device)
     model.config.use_cache = False
-    names, parameters = _select_parameters(model)
+    names, parameters = _select_parameters(model, args.trainable)
     print(
         f"model={args.model_label} method={args.method} seed={args.seed} "
         f"trainable={sum(parameter.numel() for parameter in parameters):,}",
@@ -541,7 +546,7 @@ def run(args):
             }
             for task in tasks
         },
-        "trainable": "last_transformer_block",
+        "trainable": args.trainable,
         "trainable_names": names,
         "trainable_parameter_count": sum(parameter.numel() for parameter in parameters),
         "steps_per_task": args.steps_per_task,
@@ -634,6 +639,7 @@ def main():
     parser.add_argument("--model-label", choices=tuple(PROTOCOLS))
     parser.add_argument("--model-inventory", type=Path)
     parser.add_argument("--method", choices=METHODS, default="seq")
+    parser.add_argument("--trainable", choices=("last_block", "all"), default="last_block")
     parser.add_argument("--seed", type=int, default=3407)
     parser.add_argument("--ewc-lambda", type=float, default=0.0)
     parser.add_argument("--selection", type=Path)
@@ -664,4 +670,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

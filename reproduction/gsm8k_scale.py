@@ -238,7 +238,7 @@ def _run_qwen(args, spec: dict, source_hash: str, protocol_hash: str, dependenci
         result["metadata"].update(_formal_provenance(
             args, spec, source_hash, protocol_hash, dependencies
         ))
-        result["metadata"]["trainable"] = "last_transformer_block"
+        result["metadata"]["trainable"] = args.trainable
         result["metadata"]["generation_batch_size"] = args.generation_batch_size
         result["metadata"]["model_inventory_sha256"] = result["model_inventory"]["sha256"]
         result["metadata"]["model_parameter_count"] = _safetensor_parameter_count(spec["path"])
@@ -470,7 +470,7 @@ def _run_smdm(args, spec: dict, source_hash: str, protocol_hash: str,
     parameter_count = sum(parameter.numel() for parameter in model.parameters())
     if parameter_count != spec["parameter_count"]:
         raise RuntimeError(f"parameter count {parameter_count} differs from {spec['parameter_count']}")
-    parameters = trainable_parameters(model, "all")
+    parameters = trainable_parameters(model, args.trainable)
     pad_id = int(tokenizer.eos_token_id)
     stages = []
     for stage, task in enumerate(tasks):
@@ -545,7 +545,7 @@ def _run_smdm(args, spec: dict, source_hash: str, protocol_hash: str,
             "checkpoint_sha256": spec["checkpoint_sha256"],
             "config_name": spec["config_name"],
             "model_parameter_count": parameter_count,
-            "trainable": "all_parameters",
+            "trainable": args.trainable,
             "trainable_parameter_count": sum(p.numel() for p in parameters),
             "benchmark_count": len(benchmark_rows),
             "generation_batch_size": args.generation_batch_size,
@@ -672,6 +672,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--model-path", type=Path)
     parser.add_argument("--output", type=Path)
     parser.add_argument("--method", choices=METHODS, default="cagd")
+    parser.add_argument("--trainable", choices=("last_block", "all"), default="last_block")
     parser.add_argument("--seed", type=int, default=3407)
     parser.add_argument("--steps-per-task", type=int, default=1000)
     parser.add_argument("--batch-size", type=int, default=2)

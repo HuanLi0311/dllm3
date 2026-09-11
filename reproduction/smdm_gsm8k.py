@@ -223,7 +223,7 @@ def _audit_canonical(args, spec: dict, tasks: list[dict], source_hash: str,
         "base_checkpoint": str(spec["path"].resolve()),
         "base_checkpoint_sha256": spec["checkpoint_sha256"],
         "model_parameter_count": spec["parameter_count"],
-        "trainable": "all_parameters",
+        "trainable": args.trainable,
         "trainable_parameter_count": spec["parameter_count"],
         "settings": expected_settings,
         "runner_sha256": source_hash,
@@ -263,7 +263,7 @@ def _load_context(args, spec: dict):
         raise RuntimeError(
             f"parameter count {parameter_count} differs from {spec['parameter_count']}"
         )
-    return device, tokenizer, tasks, model, trainable_parameters(model, "all")
+    return device, tokenizer, tasks, model, trainable_parameters(model, args.trainable)
 
 
 def _stage0(args, spec: dict, source_hash: str, protocol_hash: str,
@@ -320,7 +320,7 @@ def _stage0(args, spec: dict, source_hash: str, protocol_hash: str,
             "base_checkpoint": str(spec["path"].resolve()),
             "base_checkpoint_sha256": spec["checkpoint_sha256"],
             "model_parameter_count": spec["parameter_count"],
-            "trainable": "all_parameters",
+            "trainable": args.trainable,
             "trainable_parameter_count": sum(p.numel() for p in parameters),
             "settings": base._actual_settings(args, "smdm"),
             "runner_sha256": source_hash,
@@ -446,7 +446,7 @@ def _branch(args, spec: dict, source_hash: str, protocol_hash: str,
             "base_checkpoint_sha256": spec["checkpoint_sha256"],
             "config_name": spec["config_name"],
             "model_parameter_count": spec["parameter_count"],
-            "trainable": "all_parameters",
+            "trainable": args.trainable,
             "trainable_parameter_count": sum(p.numel() for p in parameters),
             "benchmark_count": len(tasks[0]["eval"][:args.benchmark_limit or None]),
             "generation_batch_size": args.generation_batch_size,
@@ -588,6 +588,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--model-id", choices=SMDM_MODELS, required=True)
     parser.add_argument("--model-path", type=Path)
     parser.add_argument("--method", choices=base.METHODS, default="seq")
+    parser.add_argument("--trainable", choices=("last_block", "all"), default="all")
     parser.add_argument("--seed", type=int, default=3407)
     parser.add_argument("--output", type=Path)
     parser.add_argument("--stage0-json", type=Path)
