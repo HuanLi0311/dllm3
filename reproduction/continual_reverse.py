@@ -268,7 +268,7 @@ def load_rankk_fisher(args, device: torch.device, dimension: int) -> tuple[dict,
     else:
         direction_tensor = torch.from_numpy(np.array(directions[:rank], copy=True)).to(direction_device)
     if args.rankk_cpu_directions:
-        # ponytail: pin CPU directions so chunk-wise non_blocking copies can overlap transfer; if this still stalls, the next cut is a different storage layout.
+        # Pin CPU directions so chunk-wise non-blocking copies can overlap transfer.
         direction_tensor = direction_tensor.pin_memory()
         if direction_scales is not None:
             direction_scales = direction_scales.pin_memory()
@@ -401,7 +401,7 @@ def run(args) -> dict:
     b_before_b, b_before_b_items = measure(model, tokenizer, b_eval, args, device)
     theta_ref = flat_parameters(parameters).detach()
     if args.method == "rankk":
-        # ponytail: rank-k reference uses fp16 to fit 1028M full-model state on 40GB; shard state if precision matters.
+        # Rank-k reference uses fp16 to fit 1028M full-model state on 40GB.
         theta_ref = theta_ref.to(dtype=torch.float16)
     else:
         theta_ref = theta_ref.clone()

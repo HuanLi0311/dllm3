@@ -28,7 +28,7 @@ if str(SMDM) not in sys.path:
 
 MASK_ID = 32000
 RANKK_DIRECTION_BLOCK_SIZE = 16_777_216
-# ponytail: 32K chunk lowers the largest temporary to ~0.5MiB for 1028M; raise only if profiling proves headroom.
+# A 32K chunk bounds the largest temporary for the 1028M configuration.
 RANKK_PROJECTION_CHUNK_SIZE = 32_768
 
 
@@ -225,8 +225,7 @@ def trainable_parameters(model, mode: str) -> list[torch.nn.Parameter]:
     for parameter in model.parameters():
         parameter.requires_grad_(False)
     last = len(model.transformer.h) - 1
-    # ponytail: final-block modes keep per-example Fisher cheap; all mode is an
-    # explicit full-model experiment and needs enough host memory for gradients.
+    # Final-block modes reduce Fisher memory; all mode needs full-model gradient memory.
     if mode == "all":
         selected = list(model.parameters())
     elif mode == "last_mlp":

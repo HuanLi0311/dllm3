@@ -177,7 +177,7 @@ def generation_length(task_id: int) -> int:
 
 
 def sdft_loss_tokens_to_skip(task_id: int) -> int:
-    # ponytail: preserve at least one supervised token for TRACE's one-token classifiers.
+    # Preserve at least one supervised token for TRACE's one-token classifiers.
     return min(SDFT_LOSS_TOKENS_TO_SKIP, generation_length(task_id) - 1)
 
 
@@ -358,7 +358,7 @@ def train_sft(args) -> None:
     if args.stage > 0 and args.command in ("train-replay", "train-opr") and args.support is None:
         raise ValueError(f"{args.command} requires --support after Stage 0")
     started = time.time()
-    # ponytail: serialize cold imports on the shared environment; remove when each node has a local env copy.
+    # Serialize cold imports because the current environment is shared across workers.
     with Path("/tmp/trace_opr_cagd_python_import.lock").open("a") as import_lock:
         fcntl.flock(import_lock, fcntl.LOCK_EX)
         import torch
@@ -541,7 +541,7 @@ def train_cagd(args) -> None:
     if not args.smoke and args.support is None:
         raise ValueError("formal CAGD training requires --support")
     started = time.time()
-    # ponytail: serialize cold imports on the shared environment; remove when each node has a local env copy.
+    # Serialize cold imports because the current environment is shared across workers.
     with Path("/tmp/trace_opr_cagd_python_import.lock").open("a") as import_lock:
         fcntl.flock(import_lock, fcntl.LOCK_EX)
         import torch
@@ -738,7 +738,7 @@ def train_sdft(args) -> None:
     if args.output.exists():
         raise FileExistsError(f"refusing to reuse {args.output}")
     started = time.time()
-    # ponytail: this is the published SDFT core, not its task-specific trainer framework.
+    # This implements the published SDFT core with the TRACE task interface.
     with Path("/tmp/trace_opr_cagd_python_import.lock").open("a") as import_lock:
         fcntl.flock(import_lock, fcntl.LOCK_EX)
         import torch

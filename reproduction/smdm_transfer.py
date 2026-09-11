@@ -445,7 +445,7 @@ def _overlap_metrics(items: list[dict]) -> dict:
     for item in items:
         target = re.findall(r"\w+", item["target"].lower())
         prediction = re.findall(r"\w+", item["prediction"].lower())
-        # ponytail: O(n*m) LCS is simplest and bounded by the 52-token generation cap.
+        # O(n*m) LCS is bounded by the 52-token generation cap.
         previous = [0] * (len(prediction) + 1)
         for target_token in target:
             current = [0]

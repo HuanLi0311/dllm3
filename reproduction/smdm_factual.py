@@ -117,7 +117,7 @@ def _sequence_specs(
         }
         for index in range(tasks)
     ]
-    # ponytail: exact reversal is enough to isolate order; no general task-graph parser.
+    # Exact reversal isolates order while retaining task identities.
     return specs if order == "forward" else list(reversed(specs))
 
 
