@@ -6,6 +6,22 @@ if [[ "${1:-}" == --dry-run ]]; then
     shift
 fi
 
+root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+python=${PAPER_PYTHON:-/home/JJ_Group/lih2511/.conda/envs/opr/bin/python}
+torchrun=${PAPER_TORCHRUN:-/home/JJ_Group/lih2511/.conda/envs/opr/bin/torchrun}
+runner=$root/reproduction/trace.py
+model=${TRACE_MODEL:-/home/JJ_Group/lih2511/.cache/huggingface/hub/models--Qwen--Qwen3-4B-Instruct-2507/snapshots/cdbee75f17c01a7cc42f958dc650907174af0554}
+run_base=${TRACE_RUN_ROOT:-$root/runs/reproduction/trace}
+trainable=${TRAINABLE_SCOPE:-all}
+case "$trainable" in all|last_block) ;; *) echo "TRAINABLE_SCOPE must be all or last_block" >&2; exit 2 ;; esac
+read -r -a methods <<< "${TRACE_METHODS:-sequential replay sdft opr cagd}"
+for method in "${methods[@]}"; do
+    case "$method" in
+        sequential|replay|sdft|opr|cagd) ;;
+        *) echo "unknown TRACE method: $method" >&2; exit 2 ;;
+    esac
+done
+
 if (( $# == 0 )); then
     read -r -a trace_seeds <<< "${TRACE_SEEDS:-3407}"
     read -r -a trace_orders <<< "${TRACE_ORDERS:-canonical}"
@@ -14,6 +30,10 @@ if (( $# == 0 )); then
             "$0" "$trace_seed" "$trace_order"
         done
     done
+    if [[ "${TRACE_DRY_RUN:-0}" != 1 ]]; then
+        "$python" "$runner" summarize-suite --run-root "$run_base" \
+            --seeds "${trace_seeds[@]}" --orders "${trace_orders[@]}"
+    fi
     exit 0
 fi
 
@@ -25,24 +45,8 @@ case "$order" in
     *) echo "task order must be canonical or reverse" >&2; exit 2 ;;
 esac
 
-root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-python=${PAPER_PYTHON:-/home/JJ_Group/lih2511/.conda/envs/opr/bin/python}
-torchrun=${PAPER_TORCHRUN:-/home/JJ_Group/lih2511/.conda/envs/opr/bin/torchrun}
-runner=$root/reproduction/trace.py
-model=${TRACE_MODEL:-/home/JJ_Group/lih2511/.cache/huggingface/hub/models--Qwen--Qwen3-4B-Instruct-2507/snapshots/cdbee75f17c01a7cc42f958dc650907174af0554}
-run_base=${TRACE_RUN_ROOT:-$root/runs/reproduction/trace}
 run=$run_base/seed${seed}${order_suffix}
-trainable=${TRAINABLE_SCOPE:-all}
-case "$trainable" in all|last_block) ;; *) echo "TRAINABLE_SCOPE must be all or last_block" >&2; exit 2 ;; esac
 runner_args=(--task-order "$order")
-read -r -a methods <<< "${TRACE_METHODS:-sequential replay sdft opr cagd}"
-
-for method in "${methods[@]}"; do
-    case "$method" in
-        sequential|replay|sdft|opr|cagd) ;;
-        *) echo "unknown TRACE method: $method" >&2; exit 2 ;;
-    esac
-done
 
 if [[ "${TRACE_DRY_RUN:-0}" == 1 ]]; then
     printf 'seed=%s order=%s methods=%s trainable=%s gpus=%s output=%s\n' \
