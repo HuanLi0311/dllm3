@@ -184,7 +184,7 @@ def summarize_cells(experiment: str, cells: list[Cell], output: Path, resume: bo
         payload = json.loads(cell.output.read_text())
         if payload.get("status", "ok") != "ok" or not isinstance(payload.get("summary"), dict):
             raise ValueError(f"invalid or incomplete cell: {cell.output}")
-        metadata = payload.get("metadata", {})
+        metadata = payload.get("metadata") or payload.get("protocol", {})
         rows.append({
             **cell.dimensions,
             "cell": cell.name,
