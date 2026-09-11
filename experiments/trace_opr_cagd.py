@@ -25,7 +25,7 @@ MODEL = Path(
     "models--Qwen--Qwen3-4B-Instruct-2507/snapshots/"
     "cdbee75f17c01a7cc42f958dc650907174af0554"
 )
-TASKS = (
+CANONICAL_TASKS = (
     "C-STANCE",
     "FOMC",
     "MeetingBank",
@@ -35,11 +35,19 @@ TASKS = (
     "NumGLUE-ds",
     "20Minuten",
 )
-EPOCHS = (5, 3, 7, 5, 3, 5, 5, 7)
+CANONICAL_EPOCHS = (5, 3, 7, 5, 3, 5, 5, 7)
+TASKS = CANONICAL_TASKS
+EPOCHS = CANONICAL_EPOCHS
 MAX_LENGTH = 2048
 BUFFER_SIZE = 50
 MICRO_BATCH = 4
 GRADIENT_ACCUMULATION = 4
+
+
+def configure_task_order(order: str) -> None:
+    global TASKS, EPOCHS
+    TASKS = CANONICAL_TASKS if order == "canonical" else CANONICAL_TASKS[::-1]
+    EPOCHS = CANONICAL_EPOCHS if order == "canonical" else CANONICAL_EPOCHS[::-1]
 
 
 def read_jsonl(path: Path) -> list[dict]:
@@ -116,32 +124,34 @@ def official_tools():
 
 def score_rows(task_id: int, gold: list[str], responses: list[str], prompts: list[str]) -> float:
     opr_eval, _ = official_tools()
-    if task_id in (0, 1, 4):
+    task = TASKS[task_id]
+    if task in ("C-STANCE", "FOMC", "ScienceQA"):
         return opr_eval.eval_acc(gold, responses)
-    if task_id == 2:
+    if task == "MeetingBank":
         return opr_eval.eval_rougel(gold, responses)
-    if task_id == 3:
+    if task == "Py150":
         return opr_eval.eval_code(gold, responses)
-    if task_id in (5, 6):
+    if task in ("NumGLUE-cm", "NumGLUE-ds"):
         return opr_eval.eval_math(gold, responses)
     return opr_eval.eval_sari(gold, responses, prompts)
 
 
 def score_one(task_id: int, gold: str, response: str, prompt: str) -> float:
     _, opr_ru = official_tools()
-    if task_id in (0, 1, 4):
+    task = TASKS[task_id]
+    if task in ("C-STANCE", "FOMC", "ScienceQA"):
         return opr_ru.score_acc(gold, response)
-    if task_id == 2:
+    if task == "MeetingBank":
         return opr_ru.score_rougel(gold, response)
-    if task_id == 3:
+    if task == "Py150":
         return opr_ru.score_code(gold, response)
-    if task_id in (5, 6):
+    if task in ("NumGLUE-cm", "NumGLUE-ds"):
         return opr_ru.score_math(gold, response)
     return opr_ru.score_sari_batch([gold], [response], [prompt])[0]
 
 
 def generation_length(task_id: int) -> int:
-    return 1 if task_id in (0, 1) else 512
+    return 1 if TASKS[task_id] in ("C-STANCE", "FOMC") else 512
 
 
 def load_eligible(tokenizer, task_id: int, split: str) -> list[dict]:
@@ -260,6 +270,7 @@ def stage_inference(args) -> None:
         evaluation = {
             "checkpoint": str(args.checkpoint),
             "stage": args.stage,
+            "task_order": list(TASKS),
             "task_scores": evaluate_tasks(llm, tokenizer, task_ids),
         }
         write_json(args.evaluation, evaluation)
@@ -389,6 +400,8 @@ def train_opr(args) -> None:
             {
                 "method": "shared" if args.stage == 0 else "opr-ru",
                 "stage": args.stage,
+                "task": TASKS[args.stage],
+                "task_order": list(TASKS),
                 "checkpoint": str(output_model),
                 "elapsed_seconds": time.time() - started,
                 "peak_gpu_bytes": int(peak.item()),
@@ -627,6 +640,8 @@ def train_cagd(args) -> None:
             {
                 "method": "cagd",
                 "stage": args.stage,
+                "task": TASKS[args.stage],
+                "task_order": list(TASKS),
                 "checkpoint": None if args.smoke else str(output_model),
                 "smoke": args.smoke,
                 "elapsed_seconds": time.time() - started,
@@ -651,6 +666,7 @@ def summarize(args) -> None:
     final = [final_eval["task_scores"][task]["mean"] for task in TASKS]
     summary = {
         "method": args.method,
+        "task_order": list(TASKS),
         "diagonal": dict(zip(TASKS, diagonal)),
         "final": dict(zip(TASKS, final)),
         "ACC": sum(final) / len(final),
@@ -662,11 +678,13 @@ def summarize(args) -> None:
 def self_check() -> None:
     assert allocations(50, 3) == [17, 17, 16]
     assert allocations(50, 7) == [8, 7, 7, 7, 7, 7, 7]
+    assert dict(zip(TASKS, EPOCHS)) == dict(zip(CANONICAL_TASKS, CANONICAL_EPOCHS))
     current = [{"input_ids": list(range(index + 1)), "labels": []} for index in range(3)]
     anchors = [{"input_ids": [1], "labels": []}, {"input_ids": [1, 2], "labels": []}]
     toy = PairedDataset(current, anchors)
     assert toy[2] == {"current": current[2], "anchor": anchors[0], "input_ids": current[2]["input_ids"]}
-    assert generation_length(0) == 1 and generation_length(4) == 512
+    assert generation_length(TASKS.index("C-STANCE")) == 1
+    assert generation_length(TASKS.index("ScienceQA")) == 512
     if int(os.environ.get("WORLD_SIZE", "1")) > 1:
         import torch
         import torch.distributed as dist
@@ -677,11 +695,16 @@ def self_check() -> None:
         dist.all_reduce(value)
         assert value.item() == dist.get_world_size() * (dist.get_world_size() + 1) / 2
         dist.destroy_process_group()
-    print(json.dumps({"self_check": "ok", "world_size": int(os.environ.get("WORLD_SIZE", "1"))}))
+    print(
+        json.dumps(
+            {"self_check": "ok", "world_size": int(os.environ.get("WORLD_SIZE", "1")), "task_order": TASKS}
+        )
+    )
 
 
 def parser() -> argparse.ArgumentParser:
     result = argparse.ArgumentParser(description=__doc__)
+    result.add_argument("--task-order", choices=("canonical", "reverse"), default="canonical")
     sub = result.add_subparsers(dest="command", required=True)
     sub.add_parser("self-check")
 
@@ -720,6 +743,7 @@ def parser() -> argparse.ArgumentParser:
 
 def main() -> None:
     args = parser().parse_args()
+    configure_task_order(args.task_order)
     if args.command == "self-check":
         self_check()
     elif args.command == "inventory":
