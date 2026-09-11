@@ -46,8 +46,8 @@ GSM_TRAIN = ROOT / "SMDM/data/gsm8k/train_no_aug.txt"
 GSM_TEST = ROOT / "SMDM/data/gsm8k/test.jsonl"
 DOLLY = ROOT / "runs/data/dolly_natural_stream.jsonl"
 DEPENDENCIES = (
-    ROOT / "experiments/qwen_cagd_natural.py",
-    ROOT / "experiments/qwen_continual_transfer.py",
+    ROOT / "reproduction/ar_natural.py",
+    ROOT / "reproduction/ar_factual.py",
 )
 LOCKED_HASHES = {
     GSM_TRAIN: "52ebf7c73927f7434abbb2f7b705a82fb3dbdd4695438b7654de78b701c23b36",

@@ -242,7 +242,7 @@ def run(args) -> dict:
     if args.formal:
         _validate(args, tasks)
     source_sha256 = _sha256(Path(__file__))
-    dependency_sha256 = _sha256(ROOT / "experiments/qwen_continual_transfer.py")
+    dependency_sha256 = _sha256(ROOT / "reproduction/ar_factual.py")
     protocol_sha256 = _sha256(PROTOCOL) if args.formal else None
     data_sha256 = _sha256(args.data)
     manifest_sha256 = _sha256(args.manifest)
@@ -323,7 +323,7 @@ def run(args) -> dict:
     }
     if (
         _sha256(Path(__file__)) != source_sha256
-        or _sha256(ROOT / "experiments/qwen_continual_transfer.py") != dependency_sha256
+        or _sha256(ROOT / "reproduction/ar_factual.py") != dependency_sha256
         or _sha256(args.data) != data_sha256
         or _sha256(args.manifest) != manifest_sha256
         or _model_inventory(args.model) != inventory

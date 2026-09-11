@@ -91,10 +91,10 @@ def _tree_sha256(path: Path) -> str:
 def _dependencies(config: dict) -> dict[str, str]:
     paths = (
         Path(__file__), config["protocol"],
-        ROOT / "experiments/dllm_rank1_multitask.py",
-        ROOT / "experiments/dllm_rank1_transfer.py",
-        ROOT / "continual_benchmark.py", ROOT / "continual_mdm.py",
-        ROOT / "continual_reverse.py",
+        ROOT / "reproduction/smdm_factual.py",
+        ROOT / "reproduction/smdm_transfer.py",
+        ROOT / "reproduction/continual_benchmark.py", ROOT / "reproduction/smdm_backend.py",
+        ROOT / "reproduction/continual_reverse.py",
     )
     return {str(path.relative_to(ROOT)): _sha256(path) for path in paths}
 
