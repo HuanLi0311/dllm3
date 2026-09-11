@@ -425,6 +425,7 @@ def _metadata(args, tasks) -> dict:
         "fisher_source": "task_training_examples",
         "fisher_per_fact": args.fisher_per_fact,
         "trainable": args.trainable,
+        "trainable_parameter_count": getattr(args, "trainable_parameter_count", None),
         "steps_per_task": args.steps_per_task,
         "batch_size": args.batch_size,
         "eval_batch_size": args.eval_batch_size,
@@ -569,10 +570,11 @@ def run(args) -> dict:
         _validate_locked_protocol(args, tasks)
     source_sha256 = _sha256(Path(__file__))
     dependency_sha256 = _dependency_hashes()
-    metadata = _metadata(args, tasks)
     model = load_model(args, device)
     parameters = trainable_parameters(model, args.trainable)
-    print(f"method={args.method} trainable_parameters={sum(p.numel() for p in parameters):,}", flush=True)
+    args.trainable_parameter_count = sum(p.numel() for p in parameters)
+    metadata = _metadata(args, tasks)
+    print(f"method={args.method} trainable_parameters={args.trainable_parameter_count:,}", flush=True)
 
     if args.method == "joint":
         joint_rows = [row for task in tasks for row in task["train"]]
