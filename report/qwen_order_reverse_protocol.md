@@ -39,3 +39,6 @@ source or this protocol changes while a run is active; or a task's encoded
 train/evaluation hash differs from the archived forward cell with the same
 method and seed.  Results are summarized only after all six reverse cells
 complete.
+
+- Reverse wrapper SHA-256: `8408131a0dcf8a07a3875a4a5c349c495876c1f89407c697ea8ec769c67c773a`.
+- Reused base runner SHA-256: `a8a48d15340d01b2261f0eba8551e42fd138fba10a73359794eba251c57947c0`.
