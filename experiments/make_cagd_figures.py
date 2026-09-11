@@ -9,6 +9,10 @@ import math
 import statistics
 import tempfile
 from pathlib import Path
+from matplotlib import font_manager
+
+for font in Path('/usr/share/fonts/opentype/urw-base35').glob('NimbusRoman-*.otf'):
+    font_manager.fontManager.addfont(font)
 
 
 INK = "#243544"
@@ -107,7 +111,7 @@ def result_summary(output: Path, factual: dict, fresh: dict,
     import matplotlib.pyplot as plt
 
     plt.rcParams.update({
-        "font.family": "DejaVu Sans",
+        "font.family": "Nimbus Roman", "mathtext.fontset": "stix",
         "font.size": 6.8,
         "pdf.fonttype": 42,
         "ps.fonttype": 42,
@@ -234,7 +238,7 @@ def qwen_scale(output: Path, qwen: dict) -> None:
     import matplotlib.pyplot as plt
 
     plt.rcParams.update({
-        "font.family": "DejaVu Sans",
+        "font.family": "Nimbus Roman", "mathtext.fontset": "stix",
         "font.size": 7.2,
         "pdf.fonttype": 42,
         "ps.fonttype": 42,

@@ -7,6 +7,10 @@ import hashlib
 import json
 import math
 from pathlib import Path
+from matplotlib import font_manager
+
+for font in Path('/usr/share/fonts/opentype/urw-base35').glob('NimbusRoman-*.otf'):
+    font_manager.fontManager.addfont(font)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -83,7 +87,7 @@ def render(rows: list[dict], output: Path) -> None:
     import matplotlib.pyplot as plt
 
     plt.rcParams.update({
-        "font.family": "DejaVu Sans", "font.size": 7.3,
+        "font.family": "Nimbus Roman", "mathtext.fontset": "stix", "font.size": 7.3,
         "pdf.fonttype": 42, "ps.fonttype": 42,
         "axes.labelcolor": "#243544", "xtick.color": "#607384",
         "ytick.color": "#607384",

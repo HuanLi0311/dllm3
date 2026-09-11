@@ -8,6 +8,10 @@ from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
+from matplotlib import font_manager
+
+for font in Path('/usr/share/fonts/opentype/urw-base35').glob('NimbusRoman-*.otf'):
+    font_manager.fontManager.addfont(font)
 
 
 ORDERS = ("forward", "reverse")
@@ -66,7 +70,7 @@ def main() -> None:
     runs = _load(args.root)
 
     plt.rcParams.update({
-        "font.family": "DejaVu Serif",
+        "font.family": "Nimbus Roman", "mathtext.fontset": "stix",
         "font.size": 7.5,
         "pdf.fonttype": 42,
         "ps.fonttype": 42,
