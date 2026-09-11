@@ -25,7 +25,9 @@ def main() -> None:
         ))
     run_cells(cells, args)
     if not args.dry_run:
-        summarize_cells("tables_qualitative", cells, args.run_root / "summary.json", args.resume)
+        summarize_cells(
+            "tables_qualitative", cells, args.run_root / "summary.json", args.resume, include=("examples",)
+        )
 
 
 if __name__ == "__main__":

@@ -174,7 +174,13 @@ def run_cells(cells: list[Cell], args) -> None:
         raise RuntimeError("\n".join(failures))
 
 
-def summarize_cells(experiment: str, cells: list[Cell], output: Path, resume: bool = False) -> None:
+def summarize_cells(
+    experiment: str,
+    cells: list[Cell],
+    output: Path,
+    resume: bool = False,
+    include: tuple[str, ...] = (),
+) -> None:
     if output.exists():
         if resume and valid_result(output):
             return
@@ -189,13 +195,32 @@ def summarize_cells(experiment: str, cells: list[Cell], output: Path, resume: bo
             **cell.dimensions,
             "cell": cell.name,
             "source": str(cell.output.resolve()),
-            "trainable": metadata.get("trainable"),
-            "trainable_parameter_count": metadata.get("trainable_parameter_count"),
+            "trainable": metadata.get("trainable", metadata.get("trainable_scope")),
+            "trainable_parameter_count": metadata.get(
+                "trainable_parameter_count", metadata.get("trainable_parameters")
+            ),
             **payload["summary"],
+            **{key: payload[key] for key in include},
         })
     result = {"schema_version": 2, "status": "ok", "experiment": experiment, "rows": rows}
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(result, indent=2) + "\n")
+
+
+def self_check() -> None:
+    forbidden = (
+        'ROOT / "experiments', "from experiments", "import experiments",
+        "from continual_", "import continual_", "from dllm_", "import dllm_",
+    )
+    offenders = []
+    for path in Path(__file__).parent.iterdir():
+        if path == Path(__file__) or path.suffix not in (".py", ".sh"):
+            continue
+        text = path.read_text(encoding="utf-8")
+        offenders.extend(f"{path.name}: {token}" for token in forbidden if token in text)
+    assert not offenders, "legacy code dependency: " + ", ".join(offenders)
+    assert SMDM_MODELS and QWEN_MODELS and PYTHON.is_absolute()
+    print(json.dumps({"self_check": "ok", "independent_files": len(list(Path(__file__).parent.glob("*")))}))
 
 
 def write_model_inventory(model: Path, output: Path) -> None:
@@ -214,3 +239,7 @@ def write_model_inventory(model: Path, output: Path) -> None:
             raise ValueError(f"model inventory changed: {output}")
         return
     output.write_text(json.dumps(payload, indent=2) + "\n")
+
+
+if __name__ == "__main__":
+    self_check()

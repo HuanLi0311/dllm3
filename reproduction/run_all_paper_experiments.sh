@@ -3,6 +3,7 @@ set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$root"
+"${PAPER_PYTHON:-/home/JJ_Group/lih2511/.conda/envs/opr/bin/python}" -m reproduction.suite_common
 
 run_id="${RUN_ID:-$(date -u +%Y%m%dT%H%M%SZ)}"
 run_root="${PAPER_RUN_ROOT:-$root/runs/reproduction/$run_id}"

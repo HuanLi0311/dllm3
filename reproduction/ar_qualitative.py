@@ -217,6 +217,7 @@ def run(args: Namespace) -> dict:
         },
         "stages": stages,
         "examples": examples,
+        "summary": base._summarize(stages, tasks),
     }
     if any(not record["output"] for records in examples.values() for record in records):
         raise RuntimeError("empty qualitative output")

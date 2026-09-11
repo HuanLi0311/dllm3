@@ -26,7 +26,9 @@ def main() -> None:
                 ))
     run_cells(cells, args)
     if not args.dry_run:
-        summarize_cells("figure_loss_dynamics", cells, args.run_root / "summary.json", args.resume)
+        summarize_cells(
+            "figure_loss_dynamics", cells, args.run_root / "summary.json", args.resume, include=("stages",)
+        )
 
 
 if __name__ == "__main__":
