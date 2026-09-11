@@ -261,13 +261,20 @@ def make_cagd_anchors(llm, tokenizer, stage: int, seed: int) -> list[dict]:
 def make_replay_buffer(tokenizer, stage: int, seed: int) -> list[dict]:
     selected = []
     for task_id, keep in enumerate(allocations(BUFFER_SIZE, stage)):
-        rows = load_eligible(tokenizer, task_id, "train")
+        rows = read_jsonl(DATA / TASKS[task_id] / "train.jsonl")
         indices = list(range(len(rows)))
         random.Random(seed * 1000 + task_id).shuffle(indices)
-        selected.extend(
-            {**rows[index], "source_task": TASKS[task_id], "source_index": index}
-            for index in indices[:keep]
-        )
+        kept = 0
+        for index in indices:
+            row = rows[index]
+            if len(apply_template(tokenizer, row["prompt"], row["answer"])) > MAX_LENGTH:
+                continue
+            selected.append({**row, "source_task": TASKS[task_id], "source_index": index})
+            kept += 1
+            if kept == keep:
+                break
+        if kept != keep:
+            raise RuntimeError(f"{TASKS[task_id]} has only {kept} eligible replay records; expected {keep}")
     assert len(selected) == BUFFER_SIZE
     return selected
 
