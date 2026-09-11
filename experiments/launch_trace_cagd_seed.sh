@@ -2,12 +2,19 @@
 set -euo pipefail
 
 seed=${1:-3407}
+order=${2:-canonical}
+case "$order" in
+    canonical) order_suffix= ;;
+    reverse) order_suffix=_reverse ;;
+    *) echo "task order must be canonical or reverse" >&2; exit 2 ;;
+esac
 repo=/home/JJ_Group/lih2511/test/dllm
 python=/home/JJ_Group/lih2511/.conda/envs/opr/bin/python
 torchrun=/home/JJ_Group/lih2511/.conda/envs/opr/bin/torchrun
 runner=$repo/iclr_3/experiments/trace_opr_cagd.py
 model=/home/JJ_Group/lih2511/.cache/huggingface/hub/models--Qwen--Qwen3-4B-Instruct-2507/snapshots/cdbee75f17c01a7cc42f958dc650907174af0554
-run=$repo/iclr_3/runs/trace_opr_cagd/seed$seed
+run=$repo/iclr_3/runs/trace_opr_cagd/seed${seed}${order_suffix}
+runner_args=(--task-order "$order")
 
 export CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
 export TOKENIZERS_PARALLELISM=false
@@ -33,7 +40,7 @@ train_stage() {
         echo "incomplete output requires inspection: $output" >&2
         exit 1
     fi
-    "$torchrun" --standalone --nproc_per_node=8 "$runner" train-cagd \
+    "$torchrun" --standalone --nproc_per_node=8 "$runner" "${runner_args[@]}" train-cagd \
         --checkpoint "$source" --stage "$stage" --seed "$seed" --support "$support" --output "$output"
 }
 
@@ -48,7 +55,7 @@ stage_inference() {
     args=(stage-inference --method cagd --checkpoint "$source" --stage "$stage" --seed "$seed")
     [[ -f "$evaluation" ]] || args+=(--evaluation "$evaluation")
     [[ -z "$support" || -f "$support" ]] || args+=(--next-support "$support")
-    "$python" "$runner" "${args[@]}"
+    "$python" "$runner" "${runner_args[@]}" "${args[@]}"
 }
 
 shared=$run/shared/stage0
@@ -58,7 +65,7 @@ if [[ ! -f "$shared/stage_result.json" ]]; then
         exit 1
     fi
     # Stage 0 is shared SFT; CAGD begins at the first task transition.
-    "$torchrun" --standalone --nproc_per_node=8 "$runner" train-opr \
+    "$torchrun" --standalone --nproc_per_node=8 "$runner" "${runner_args[@]}" train-opr \
         --checkpoint "$model" --stage 0 --seed "$seed" --output "$shared"
 fi
 shared_checkpoint=$(checkpoint "$shared")
@@ -79,4 +86,4 @@ for stage in 1 2 3 4 5 6 7; do
     fi
 done
 [[ -f "$run/cagd/summary.json" ]] || \
-    "$python" "$runner" summarize --run "$run" --method cagd
+    "$python" "$runner" "${runner_args[@]}" summarize --run "$run" --method cagd
