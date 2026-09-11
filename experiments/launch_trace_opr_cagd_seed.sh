@@ -70,7 +70,8 @@ if [[ ! -f "$cagd_support" ]]; then
         --stage 0 --seed "$seed" --next-support "$cagd_support"
 fi
 
-for method in opr cagd; do
+# Set TRACE_METHODS=opr when CAGD is running on a separate node.
+for method in ${TRACE_METHODS:-opr cagd}; do
     source=$shared_checkpoint
     support=$shared/support_${method}_stage1.jsonl
     for stage in 1 2 3 4 5 6 7; do
