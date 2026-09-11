@@ -6,6 +6,7 @@ import argparse
 import hashlib
 import json
 import os
+import queue
 import shlex
 import subprocess
 import sys
@@ -148,12 +149,20 @@ def run_cells(cells: list[Cell], args) -> None:
             print(f"{cell.name}\t{cell.output}\t{shlex.join(cell.command)}")
         return
     devices = gpus(args)
+    available = queue.Queue()
+    for device in devices:
+        available.put(device)
+
+    def leased(cell: Cell) -> str:
+        device = available.get()
+        try:
+            return _run_cell(cell, device, args.resume)
+        finally:
+            available.put(device)
+
     failures = []
     with ThreadPoolExecutor(max_workers=len(devices)) as pool:
-        futures = {
-            pool.submit(_run_cell, cell, devices[index % len(devices)], args.resume): cell
-            for index, cell in enumerate(cells)
-        }
+        futures = {pool.submit(leased, cell): cell for cell in cells}
         for future in as_completed(futures):
             cell = futures[future]
             try:
