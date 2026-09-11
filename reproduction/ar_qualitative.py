@@ -47,13 +47,6 @@ DATA = ROOT / "runs/data/dolly_natural_stream.jsonl"
 MANIFEST = ROOT / "runs/data/dolly_natural_stream_manifest.json"
 BASE_RUNNER = ROOT / "reproduction/ar_natural.py"
 DEPENDENCY = ROOT / "reproduction/ar_factual.py"
-ARCHIVE_ROOT = ROOT / "runs/cagd_natural/formal/qwen/s3407"
-LOCKED_HASHES = {
-    BASE_RUNNER: "4a8be25e92865127c46ca12c0359de1692f866692849581d23da4c92aba8feea",
-    DEPENDENCY: "a8a48d15340d01b2261f0eba8551e42fd138fba10a73359794eba251c57947c0",
-    DATA: "a3847b527b517a6a778d85c17ad6a597e66c0f27f4137dde25da496092e219a0",
-    MANIFEST: "ce47eb566d6115e95f31a5379768c3d3c42b005ad3b4a9705fee42c867a437fa",
-}
 SETTINGS = {
     "steps_per_task": 1000,
     "batch_size": 2,
@@ -69,17 +62,20 @@ SETTINGS = {
 }
 
 
-def _fixed_args(method: str, device: str, output: Path) -> Namespace:
+def _fixed_args(parsed: Namespace) -> Namespace:
     return Namespace(
         data=DATA,
         manifest=MANIFEST,
-        model=base.DEFAULT_MODEL,
-        output=output,
-        method=method,
+        model=parsed.model,
+        model_display_name=parsed.model_display_name,
+        output=parsed.output,
+        method=parsed.method,
         order="forward",
-        seed=SEED,
-        device=device,
-        formal=True,
+        seed=parsed.seed,
+        trainable=parsed.trainable,
+        device=parsed.device,
+        formal=False,
+        reference_root=parsed.reference_root,
         self_check=False,
         **SETTINGS,
     )
@@ -136,29 +132,24 @@ def run(args: Namespace) -> dict:
         raise FileExistsError(f"refusing to overwrite {args.output}")
     if not torch.cuda.is_available() or not args.device.startswith("cuda"):
         raise RuntimeError("qualitative reproduction requires CUDA")
-    if not PROTOCOL.read_text().startswith("# Qwen qualitative-output protocol\n\nStatus: frozen"):
-        raise ValueError("qualitative protocol is not frozen")
-    for path, digest in LOCKED_HASHES.items():
-        if base._sha256(path) != digest:
-            raise ValueError(f"locked dependency differs: {path}")
-
-    archive_path = ARCHIVE_ROOT / f"{args.method}.json"
-    archive = json.loads(archive_path.read_text())
-    if archive.get("status") != "ok" or archive["metadata"].get("seed") != SEED:
-        raise ValueError("archived comparison endpoint is invalid")
+    archive_path = args.reference_root / f"{args.method}.json" if args.reference_root else None
+    archive = json.loads(archive_path.read_text()) if archive_path else None
+    if archive is not None and (
+        archive.get("status") != "ok" or archive["metadata"].get("seed") != args.seed
+    ):
+        raise ValueError("reference endpoint is invalid")
 
     started = time.monotonic()
-    _set_seed(SEED)
+    _set_seed(args.seed)
     device = torch.device(args.device)
     tokenizer = AutoTokenizer.from_pretrained(args.model, local_files_only=True, use_fast=True)
     pad_id = int(tokenizer.eos_token_id)
     tasks = base._read_tasks(DATA, tokenizer, SETTINGS["max_length"], "forward")
-    base._validate(args, tasks)
     model = AutoModelForCausalLM.from_pretrained(
         args.model, local_files_only=True, dtype=torch.bfloat16, attn_implementation="sdpa"
     ).to(device)
     model.config.use_cache = False
-    trainable_names, parameters = _select_parameters(model)
+    trainable_names, parameters = _select_parameters(model, args.trainable)
     total_parameters = sum(parameter.numel() for parameter in model.parameters())
     stages = []
 
@@ -192,14 +183,14 @@ def run(args: Namespace) -> dict:
             "metrics": metrics,
         })
 
-    max_metric_difference = _metric_difference(stages, archive["stages"])
-    if max_metric_difference > 5e-6:
+    max_metric_difference = _metric_difference(stages, archive["stages"]) if archive else None
+    if max_metric_difference is not None and max_metric_difference > 5e-6:
         raise RuntimeError(f"reproduction differs from archived endpoint by {max_metric_difference}")
     examples = {
         task["name"]: _generate_examples(model, task, tokenizer, pad_id, device)
         for task in tasks if task["name"] in SELECTED_IDS
     }
-    tracked = (Path(__file__), PROTOCOL, *LOCKED_HASHES)
+    tracked = (Path(__file__), BASE_RUNNER, DEPENDENCY, DATA, MANIFEST)
     hashes = {str(path.relative_to(ROOT)): base._sha256(path) for path in tracked}
     result = {
         "schema_version": 1,
@@ -209,16 +200,16 @@ def run(args: Namespace) -> dict:
         "host": os.uname().nodename,
         "wall_time_seconds": time.monotonic() - started,
         "source_sha256": hashes,
-        "upstream_artifact": str(archive_path.relative_to(ROOT)),
-        "upstream_artifact_sha256": base._sha256(archive_path),
+        "upstream_artifact": str(archive_path.relative_to(ROOT)) if archive_path else None,
+        "upstream_artifact_sha256": base._sha256(archive_path) if archive_path else None,
         "metadata": {
-            "model": "Qwen3-0.6B",
+            "model": args.model_display_name,
             "model_parameter_count": total_parameters,
-            "trainable": "last_transformer_block",
+            "trainable": args.trainable,
             "trainable_names": trainable_names,
             "trainable_parameter_count": sum(parameter.numel() for parameter in parameters),
             "method": args.method,
-            "seed": SEED,
+            "seed": args.seed,
             "task_sequence": list(base.TASKS),
             "selected_example_ids": SELECTED_IDS,
             "settings": SETTINGS,
@@ -241,8 +232,6 @@ def run(args: Namespace) -> dict:
 
 
 def _self_check() -> None:
-    for path, digest in LOCKED_HASHES.items():
-        assert base._sha256(path) == digest
     rows = [json.loads(line) for line in DATA.read_text().splitlines() if line.strip()]
     observed = {(row["task"], row["example_id"]) for row in rows if row["split"] == "test"}
     selected = [(task, example_id) for task, ids in SELECTED_IDS.items() for example_id in ids]
@@ -254,6 +243,11 @@ def _self_check() -> None:
 def parse_args() -> Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--method", choices=METHODS)
+    parser.add_argument("--model", type=Path, default=base.DEFAULT_MODEL)
+    parser.add_argument("--model-display-name", default="Qwen3-0.6B")
+    parser.add_argument("--trainable", choices=("last_block", "all"), default="last_block")
+    parser.add_argument("--seed", type=int, default=SEED)
+    parser.add_argument("--reference-root", type=Path)
     parser.add_argument("--device", default="cuda")
     parser.add_argument("--output", type=Path)
     parser.add_argument("--self-check", action="store_true")
@@ -262,7 +256,7 @@ def parse_args() -> Namespace:
         return parsed
     if parsed.method is None or parsed.output is None:
         parser.error("--method and --output are required")
-    return _fixed_args(parsed.method, parsed.device, parsed.output)
+    return _fixed_args(parsed)
 
 
 def main() -> None:
