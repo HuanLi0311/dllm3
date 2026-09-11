@@ -46,6 +46,7 @@ SDFT_MICRO_BATCH = 1
 SDFT_GRADIENT_ACCUMULATION = 16
 SDFT_EMA_RATE = 0.01
 SDFT_KL_CHUNK = 16
+SDFT_LOSS_TOKENS_TO_SKIP = 3
 
 
 def configure_task_order(order: str) -> None:
@@ -156,6 +157,11 @@ def score_one(task_id: int, gold: str, response: str, prompt: str) -> float:
 
 def generation_length(task_id: int) -> int:
     return 1 if TASKS[task_id] in ("C-STANCE", "FOMC") else 512
+
+
+def sdft_loss_tokens_to_skip(task_id: int) -> int:
+    # ponytail: preserve at least one supervised token for TRACE's one-token classifiers.
+    return min(SDFT_LOSS_TOKENS_TO_SKIP, generation_length(task_id) - 1)
 
 
 def load_eligible(tokenizer, task_id: int, split: str) -> list[dict]:
@@ -281,10 +287,10 @@ def make_replay_buffer(tokenizer, stage: int, seed: int) -> list[dict]:
 
 def sdft_teacher_prompt(prompt: str, answer: str) -> str:
     return (
-        f"{prompt}\n\n"
+        f"\n{prompt}\n\n"
         "This is an example for a response to the question:\n"
         f"{answer}\n\n"
-        "Now answer with a response of your own, including the thinking process."
+        "Now answer with a response of your own, including the thinking process.\n"
     )
 
 
@@ -724,6 +730,7 @@ def train_sdft(args) -> None:
         apply_template(tokenizer, "")
 
     max_new_tokens = generation_length(args.stage)
+    loss_tokens_to_skip = sdft_loss_tokens_to_skip(args.stage)
     max_prompt_tokens = MAX_LENGTH - max_new_tokens
     rows = load_eligible(tokenizer, args.stage, "train")
     if args.smoke:
@@ -820,6 +827,7 @@ def train_sdft(args) -> None:
                     do_sample=True,
                     temperature=1.0,
                     top_p=1.0,
+                    top_k=0,
                     max_new_tokens=max_new_tokens,
                     pad_token_id=pad_id,
                     eos_token_id=tokenizer.eos_token_id,
@@ -828,6 +836,8 @@ def train_sdft(args) -> None:
             self.student.train(was_training)
             completion = generated[:, student_input_ids.shape[1] :]
             completion_mask = self.completion_mask(completion)
+            loss_mask = completion_mask.clone()
+            loss_mask[:, :loss_tokens_to_skip] = 0
             student_full = torch.cat((student_input_ids, completion), dim=1)
             student_full_mask = torch.cat((student_attention_mask, completion_mask), dim=1)
             teacher_full = torch.cat((teacher_input_ids, completion), dim=1)
@@ -843,11 +853,11 @@ def train_sdft(args) -> None:
 
             student_head = self.student.get_output_embeddings()
             teacher_head = self.teacher.get_output_embeddings()
-            loss_sum = student_hidden.new_zeros((), dtype=torch.float32)
-            token_count = completion_mask.sum().clamp(min=1)
+            loss_sum = student_hidden.reshape(-1)[0].float() * 0.0
+            token_count = loss_mask.sum().clamp(min=1)
             for start in range(0, completion.shape[1], SDFT_KL_CHUNK):
                 stop = min(start + SDFT_KL_CHUNK, completion.shape[1])
-                valid = completion_mask[:, start:stop].bool()
+                valid = loss_mask[:, start:stop].bool()
                 if not valid.any():
                     continue
                 student_logits = F.linear(
@@ -941,10 +951,16 @@ def train_sdft(args) -> None:
                 "eligible_training_examples": len(encoded),
                 "trainable_parameters": sum(parameter.numel() for parameter in student.parameters()),
                 "student_sampling_temperature": 1.0,
+                "student_sampling_top_p": 1.0,
+                "student_sampling_top_k": 0,
                 "maximum_generation_tokens": max_new_tokens,
+                "loss_tokens_to_skip": loss_tokens_to_skip,
                 "teacher_ema_rate": SDFT_EMA_RATE,
+                "teacher_update_frequency": "after every optimizer step",
                 "distillation": "token-level forward KL on student rollouts",
-                "teacher_context": "per-example expert demonstration",
+                "generation_source": "student conditioned only on the original prompt",
+                "teacher_context": "original prompt plus its paired expert demonstration",
+                "importance_sampling_correction": "not applicable: generation and optimization use the same model",
             },
         )
     trainer.accelerator.wait_for_everyone()
@@ -981,10 +997,12 @@ def self_check() -> None:
     assert toy[2] == {"current": current[2], "anchor": anchors[0], "input_ids": current[2]["input_ids"]}
     assert generation_length(TASKS.index("C-STANCE")) == 1
     assert generation_length(TASKS.index("ScienceQA")) == 512
+    assert sdft_loss_tokens_to_skip(TASKS.index("C-STANCE")) == 0
+    assert sdft_loss_tokens_to_skip(TASKS.index("MeetingBank")) == 3
     teacher_prompt = sdft_teacher_prompt("question", "answer")
-    assert teacher_prompt.startswith("question\n\nThis is an example")
+    assert teacher_prompt.startswith("\nquestion\n\nThis is an example")
     assert "\nanswer\n\n" in teacher_prompt
-    assert teacher_prompt.endswith("including the thinking process.")
+    assert teacher_prompt.endswith("including the thinking process.\n")
     if int(os.environ.get("WORLD_SIZE", "1")) > 1:
         import torch
         import torch.distributed as dist

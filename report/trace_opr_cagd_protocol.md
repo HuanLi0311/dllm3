@@ -101,13 +101,32 @@ batch size above.
 - **SDFT:** a clean-room implementation of the public algorithm at
   `Continual-Intelligence/Self-Distillation` commit
   `d77573212fa0a3ae2eeb64b9b44db1c251f75e3e`. At every update, the student
-  samples an on-policy completion at temperature 1. The EMA teacher receives
-  the same query plus its paired expert demonstration, and token-level forward
-  KL is minimized on the student's sampled trajectory. The teacher is updated
-  after every optimizer step with EMA rate 0.01. Task-specific maximum
-  generation lengths match evaluation (one token for C-STANCE and FOMC, 512
-  otherwise). SDFT trains Stage 0 independently; Sequential, Vanilla Replay,
-  OPR-RU, and CAGD share the identical Stage-0 SFT checkpoint.
+  samples one on-policy completion from the original query at temperature 1,
+  top-p 1, with top-k disabled. The EMA teacher receives the original query
+  plus its paired expert demonstration and scores that same student-generated
+  completion. Token-level forward KL from the teacher distribution to the
+  student distribution is minimized, and the teacher is updated after every
+  optimizer step as $\phi\leftarrow0.01\theta+0.99\phi$. Because generation
+  uses the same Hugging Face student that is optimized, rather than a separate
+  vLLM copy, no inference-engine importance correction is needed. Task-specific
+  maximum generation lengths match evaluation (one token for C-STANCE and
+  FOMC, 512 otherwise). Following the released implementation, the first three
+  completion tokens are excluded from the loss on long-form tasks; this is set
+  to zero for the one-token classification tasks so their loss remains defined.
+  SDFT trains Stage 0 independently; Sequential, Vanilla Replay, OPR-RU, and
+  CAGD share the identical Stage-0 SFT checkpoint.
+
+The SDFT teacher receives one user message constructed exactly as follows,
+where the student receives only `<query>`:
+
+```text
+<query>
+
+This is an example for a response to the question:
+<expert demonstration>
+
+Now answer with a response of your own, including the thinking process.
+```
 
 The SDFT source is used as a specification rather than vendored: its released
 trainer is task-specific, has no TRACE adapter, and carries no explicit license.
