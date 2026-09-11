@@ -695,11 +695,250 @@ def train_cagd(args) -> None:
     torch.distributed.destroy_process_group()
 
 
+def train_sdft(args) -> None:
+    """SDFT: on-policy student rollouts with a demonstration-conditioned EMA teacher."""
+    if args.output.exists():
+        raise FileExistsError(f"refusing to reuse {args.output}")
+    started = time.time()
+    # ponytail: this is the published SDFT core, not its task-specific trainer framework.
+    with Path("/tmp/trace_opr_cagd_python_import.lock").open("a") as import_lock:
+        fcntl.flock(import_lock, fcntl.LOCK_EX)
+        import torch
+        from torch import nn
+        from torch.nn import functional as F
+        from transformers import AutoModelForCausalLM, AutoTokenizer, Trainer, TrainerCallback, TrainingArguments, set_seed
+
+        set_seed(args.seed)
+        tokenizer = AutoTokenizer.from_pretrained(args.checkpoint, trust_remote_code=True)
+        apply_template(tokenizer, "")
+
+    max_new_tokens = generation_length(args.stage)
+    max_prompt_tokens = MAX_LENGTH - max_new_tokens
+    rows = load_eligible(tokenizer, args.stage, "train")
+    encoded = []
+    for row in rows:
+        student_ids = apply_template(tokenizer, row["prompt"])[-max_prompt_tokens:]
+        teacher_ids = apply_template(tokenizer, sdft_teacher_prompt(row["prompt"], row["answer"]))[-max_prompt_tokens:]
+        if student_ids and teacher_ids:
+            encoded.append({"student_ids": student_ids, "teacher_ids": teacher_ids, "input_ids": student_ids})
+
+    class SDFTDataset:
+        def __len__(self):
+            return len(encoded)
+
+        def __getitem__(self, index):
+            return encoded[index]
+
+    pad_id = tokenizer.pad_token_id if tokenizer.pad_token_id is not None else tokenizer.eos_token_id
+
+    def left_pad(sequences):
+        width = max(len(sequence) for sequence in sequences)
+        return (
+            torch.tensor([[pad_id] * (width - len(sequence)) + sequence for sequence in sequences], dtype=torch.long),
+            torch.tensor([[0] * (width - len(sequence)) + [1] * len(sequence) for sequence in sequences], dtype=torch.long),
+        )
+
+    def collate(features):
+        student_ids, student_mask = left_pad([row["student_ids"] for row in features])
+        teacher_ids, teacher_mask = left_pad([row["teacher_ids"] for row in features])
+        return {
+            "student_input_ids": student_ids,
+            "student_attention_mask": student_mask,
+            "teacher_input_ids": teacher_ids,
+            "teacher_attention_mask": teacher_mask,
+        }
+
+    local_rank = int(os.environ.get("LOCAL_RANK", "0"))
+    torch.cuda.set_device(local_rank)
+    teacher = AutoModelForCausalLM.from_pretrained(
+        args.checkpoint,
+        torch_dtype=torch.bfloat16,
+        low_cpu_mem_usage=True,
+        trust_remote_code=True,
+        attn_implementation="sdpa",
+        device_map={"": local_rank},
+    )
+    teacher.eval()
+    for parameter in teacher.parameters():
+        parameter.requires_grad_(False)
+    student = AutoModelForCausalLM.from_pretrained(
+        args.checkpoint,
+        torch_dtype=torch.bfloat16,
+        low_cpu_mem_usage=True,
+        trust_remote_code=True,
+        attn_implementation="sdpa",
+    )
+    student.config.use_cache = False
+    student.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
+
+    class SDFTModel(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.student = student
+            self.teacher = teacher
+
+        def train(self, mode=True):
+            super().train(mode)
+            self.teacher.eval()
+            return self
+
+        @staticmethod
+        def completion_mask(completion):
+            eos_id = tokenizer.eos_token_id
+            mask = completion.eq(eos_id).cumsum(dim=1).le(1)
+            if pad_id != eos_id:
+                mask &= completion.ne(pad_id)
+            return mask.long()
+
+        def forward(
+            self,
+            student_input_ids,
+            student_attention_mask,
+            teacher_input_ids,
+            teacher_attention_mask,
+        ):
+            was_training = self.student.training
+            self.student.eval()
+            with torch.no_grad():
+                generated = self.student.generate(
+                    input_ids=student_input_ids,
+                    attention_mask=student_attention_mask,
+                    do_sample=True,
+                    temperature=1.0,
+                    top_p=1.0,
+                    max_new_tokens=max_new_tokens,
+                    pad_token_id=pad_id,
+                    eos_token_id=tokenizer.eos_token_id,
+                    use_cache=True,
+                )
+            self.student.train(was_training)
+            completion = generated[:, student_input_ids.shape[1] :]
+            completion_mask = self.completion_mask(completion)
+            student_full = torch.cat((student_input_ids, completion), dim=1)
+            student_full_mask = torch.cat((student_attention_mask, completion_mask), dim=1)
+            teacher_full = torch.cat((teacher_input_ids, completion), dim=1)
+            teacher_full_mask = torch.cat((teacher_attention_mask, completion_mask), dim=1)
+
+            student_hidden = self.student.model(
+                input_ids=student_full, attention_mask=student_full_mask, use_cache=False
+            ).last_hidden_state[:, student_input_ids.shape[1] - 1 : -1]
+            with torch.no_grad():
+                teacher_hidden = self.teacher.model(
+                    input_ids=teacher_full, attention_mask=teacher_full_mask, use_cache=False
+                ).last_hidden_state[:, teacher_input_ids.shape[1] - 1 : -1]
+
+            student_head = self.student.get_output_embeddings()
+            teacher_head = self.teacher.get_output_embeddings()
+            loss_sum = student_hidden.new_zeros((), dtype=torch.float32)
+            token_count = completion_mask.sum().clamp(min=1)
+            for start in range(0, completion.shape[1], SDFT_KL_CHUNK):
+                stop = min(start + SDFT_KL_CHUNK, completion.shape[1])
+                valid = completion_mask[:, start:stop].bool()
+                if not valid.any():
+                    continue
+                student_logits = F.linear(
+                    student_hidden[:, start:stop][valid],
+                    student_head.weight,
+                    getattr(student_head, "bias", None),
+                ).float()
+                with torch.no_grad():
+                    teacher_logits = F.linear(
+                        teacher_hidden[:, start:stop][valid],
+                        teacher_head.weight,
+                        getattr(teacher_head, "bias", None),
+                    ).float()
+                    teacher_log_probs = F.log_softmax(teacher_logits, dim=-1)
+                loss_sum = loss_sum + F.kl_div(
+                    F.log_softmax(student_logits, dim=-1),
+                    teacher_log_probs,
+                    reduction="sum",
+                    log_target=True,
+                )
+            return {"loss": loss_sum / token_count}
+
+    class EMATeacher(TrainerCallback):
+        def on_step_end(self, args, state, control, **kwargs):
+            with torch.no_grad():
+                for student_parameter, teacher_parameter in zip(student.parameters(), teacher.parameters()):
+                    teacher_parameter.mul_(1.0 - SDFT_EMA_RATE).add_(student_parameter, alpha=SDFT_EMA_RATE)
+
+    deepspeed_config = {
+        "bf16": {"enabled": True},
+        "train_micro_batch_size_per_gpu": SDFT_MICRO_BATCH,
+        "gradient_accumulation_steps": SDFT_GRADIENT_ACCUMULATION,
+        "train_batch_size": 128,
+        "gradient_clipping": 1.0,
+        "zero_optimization": {"stage": 2, "overlap_comm": True, "contiguous_gradients": True},
+    }
+    training_args = TrainingArguments(
+        output_dir=str(args.output / "trainer"),
+        num_train_epochs=EPOCHS[args.stage],
+        per_device_train_batch_size=SDFT_MICRO_BATCH,
+        gradient_accumulation_steps=SDFT_GRADIENT_ACCUMULATION,
+        learning_rate=1e-5,
+        adam_beta1=0.9,
+        adam_beta2=0.95,
+        adam_epsilon=1e-8,
+        lr_scheduler_type="cosine",
+        warmup_ratio=0.0,
+        weight_decay=0.0,
+        max_grad_norm=1.0,
+        bf16=True,
+        deepspeed=deepspeed_config,
+        save_strategy="no",
+        logging_steps=1,
+        report_to="none",
+        remove_unused_columns=False,
+        dataloader_num_workers=0,
+        group_by_length=True,
+        seed=args.seed,
+        data_seed=args.seed,
+    )
+    trainer = Trainer(
+        model=SDFTModel(),
+        args=training_args,
+        train_dataset=SDFTDataset(),
+        data_collator=collate,
+        callbacks=[EMATeacher()],
+    )
+    trainer.train()
+    trainer.accelerator.wait_for_everyone()
+    peak = torch.tensor(torch.cuda.max_memory_allocated(), device=trainer.accelerator.device)
+    torch.distributed.all_reduce(peak, op=torch.distributed.ReduceOp.MAX)
+    if trainer.accelerator.is_main_process:
+        output_model = args.output / "model"
+        unwrapped = trainer.accelerator.unwrap_model(trainer.model_wrapped)
+        unwrapped.student.config.use_cache = True
+        unwrapped.student.save_pretrained(output_model, safe_serialization=True, max_shard_size="4GB")
+        tokenizer.save_pretrained(output_model)
+        write_json(
+            args.output / "stage_result.json",
+            {
+                "method": "sdft",
+                "stage": args.stage,
+                "task": TASKS[args.stage],
+                "task_order": list(TASKS),
+                "checkpoint": str(output_model),
+                "elapsed_seconds": time.time() - started,
+                "peak_gpu_bytes": int(peak.item()),
+                "eligible_training_examples": len(encoded),
+                "trainable_parameters": sum(parameter.numel() for parameter in student.parameters()),
+                "student_sampling_temperature": 1.0,
+                "maximum_generation_tokens": max_new_tokens,
+                "teacher_ema_rate": SDFT_EMA_RATE,
+                "distillation": "token-level forward KL on student rollouts",
+                "teacher_context": "per-example expert demonstration",
+            },
+        )
+    trainer.accelerator.wait_for_everyone()
+    torch.distributed.destroy_process_group()
+
+
 def summarize(args) -> None:
     method_root = args.run / args.method
     diagonal = []
     for stage in range(len(TASKS)):
-        root = args.run / ("shared" if stage == 0 else args.method) / f"stage{stage}"
+        root = args.run / ("shared" if stage == 0 and args.method != "sdft" else args.method) / f"stage{stage}"
         evaluation = json.loads((root / "evaluation.json").read_text(encoding="utf-8"))
         diagonal.append(evaluation["task_scores"][TASKS[stage]]["mean"])
     final_eval = json.loads((method_root / "stage7/evaluation.json").read_text(encoding="utf-8"))
