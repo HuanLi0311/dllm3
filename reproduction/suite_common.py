@@ -322,6 +322,20 @@ def self_check() -> None:
     aggregates, paired = aggregate_rows(mock, ["method", "model", "seed"])
     assert next(row for row in aggregates if row["method"] == "a")["metrics"]["score"]["mean"] == 3.0
     assert next(row for row in paired if row["left_method"] == "a")["metrics"]["score"]["mean"] == 1.0
+    checks = {
+        SMDM_PYTHON: (
+            "import sys; "
+            f"sys.path.insert(0, {str(ROOT / 'third_party/SMDM')!r}); "
+            "import torch, transformers, safetensors, lightning; from lit_gpt.config import Config"
+        ),
+        AR_PYTHON: "import torch, transformers, safetensors",
+    }
+    for executable, code in checks.items():
+        completed = subprocess.run(
+            [str(executable), "-c", code], capture_output=True, text=True, timeout=120
+        )
+        if completed.returncode:
+            raise RuntimeError(f"environment check failed for {executable}: {completed.stderr.strip()}")
     print(json.dumps({"self_check": "ok", "independent_files": len(list(Path(__file__).parent.glob("*")))}))
 
 
