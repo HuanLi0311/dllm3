@@ -153,6 +153,12 @@ def _sari(gold: list[str], responses: list[str], prompts: list[str]) -> float:
     )["sari"])
 
 
+def preload_scorers() -> None:
+    import evaluate  # noqa: F401
+    import fuzzywuzzy  # noqa: F401
+    import rouge_score  # noqa: F401
+
+
 def score_rows(task_id: int, gold: list[str], responses: list[str], prompts: list[str]) -> float:
     task = TASKS[task_id]
     if task in ("C-STANCE", "FOMC", "ScienceQA"):
@@ -337,8 +343,7 @@ def stage_inference(args) -> None:
     tokenizer = AutoTokenizer.from_pretrained(args.checkpoint, trust_remote_code=True)
     llm = None
     if args.evaluation is not None:
-        # Load the official scorers before vLLM initializes CUDA worker processes.
-        official_tools()
+        preload_scorers()
         llm = make_llm(args.checkpoint, args.seed)
         task_ids = list(range(args.stage + 1)) if args.stage == len(TASKS) - 1 else [args.stage]
         evaluation = {
@@ -1077,6 +1082,7 @@ def summarize_suite(args) -> None:
 
 
 def self_check() -> None:
+    preload_scorers()
     assert allocations(50, 3) == [17, 17, 16]
     assert allocations(50, 7) == [8, 7, 7, 7, 7, 7, 7]
     assert dict(zip(TASKS, EPOCHS)) == dict(zip(CANONICAL_TASKS, CANONICAL_EPOCHS))
