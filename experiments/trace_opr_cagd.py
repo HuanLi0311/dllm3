@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import encodings.unicode_escape  # Preload before distributed workers compile the Jinja chat template.
+import fcntl
 import hashlib
 import json
 import os
@@ -273,16 +274,20 @@ def stage_inference(args) -> None:
 
 
 def train_opr(args) -> None:
-    import torch
-    from liger_kernel.transformers import LigerFusedLinearCrossEntropyLoss
-    from torch import nn
-    from transformers import AutoModelForCausalLM, AutoTokenizer, Trainer, TrainingArguments, set_seed
-
     if args.output.exists():
         raise FileExistsError(f"refusing to reuse {args.output}")
     started = time.time()
-    set_seed(args.seed)
-    tokenizer = AutoTokenizer.from_pretrained(args.checkpoint, trust_remote_code=True)
+    # ponytail: serialize cold imports on the shared environment; remove when each node has a local env copy.
+    with Path("/tmp/trace_opr_cagd_python_import.lock").open("a") as import_lock:
+        fcntl.flock(import_lock, fcntl.LOCK_EX)
+        import torch
+        from liger_kernel.transformers import LigerFusedLinearCrossEntropyLoss
+        from torch import nn
+        from transformers import AutoModelForCausalLM, AutoTokenizer, Trainer, TrainingArguments, set_seed
+
+        set_seed(args.seed)
+        tokenizer = AutoTokenizer.from_pretrained(args.checkpoint, trust_remote_code=True)
+        apply_template(tokenizer, "")
     rows = read_jsonl(DATA / TASKS[args.stage] / "train.jsonl")
     if args.support is not None:
         rows += read_jsonl(args.support)
@@ -442,19 +447,23 @@ def paired_collator(tokenizer):
 
 
 def train_cagd(args) -> None:
-    import torch
-    from liger_kernel.transformers import LigerFusedLinearCrossEntropyLoss
-    from torch.nn import functional as F
-    from torch import nn
-    from transformers import AutoModelForCausalLM, AutoTokenizer, Trainer, TrainingArguments, set_seed
-
     if args.output.exists():
         raise FileExistsError(f"refusing to reuse {args.output}")
     if not args.smoke and args.support is None:
         raise ValueError("formal CAGD training requires --support")
     started = time.time()
-    set_seed(args.seed)
-    tokenizer = AutoTokenizer.from_pretrained(args.checkpoint, trust_remote_code=True)
+    # ponytail: serialize cold imports on the shared environment; remove when each node has a local env copy.
+    with Path("/tmp/trace_opr_cagd_python_import.lock").open("a") as import_lock:
+        fcntl.flock(import_lock, fcntl.LOCK_EX)
+        import torch
+        from liger_kernel.transformers import LigerFusedLinearCrossEntropyLoss
+        from torch import nn
+        from torch.nn import functional as F
+        from transformers import AutoModelForCausalLM, AutoTokenizer, Trainer, TrainingArguments, set_seed
+
+        set_seed(args.seed)
+        tokenizer = AutoTokenizer.from_pretrained(args.checkpoint, trust_remote_code=True)
+        apply_template(tokenizer, "")
     current = [
         encoded
         for row in read_jsonl(DATA / TASKS[args.stage] / "train.jsonl")
