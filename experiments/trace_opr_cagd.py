@@ -964,6 +964,8 @@ def self_check() -> None:
     assert toy[2] == {"current": current[2], "anchor": anchors[0], "input_ids": current[2]["input_ids"]}
     assert generation_length(TASKS.index("C-STANCE")) == 1
     assert generation_length(TASKS.index("ScienceQA")) == 512
+    assert sdft_teacher_prompt("question", "answer").count("question") == 1
+    assert "answer" in sdft_teacher_prompt("question", "answer")
     if int(os.environ.get("WORLD_SIZE", "1")) > 1:
         import torch
         import torch.distributed as dist
@@ -992,19 +994,20 @@ def parser() -> argparse.ArgumentParser:
     inventory.add_argument("--output", type=Path, required=True)
 
     inference = sub.add_parser("stage-inference")
-    inference.add_argument("--method", choices=("opr", "cagd"), required=True)
+    inference.add_argument("--method", choices=("sequential", "replay", "sdft", "opr", "cagd"), required=True)
     inference.add_argument("--checkpoint", type=Path, required=True)
     inference.add_argument("--stage", type=int, choices=range(8), required=True)
     inference.add_argument("--seed", type=int, default=3407)
     inference.add_argument("--evaluation", type=Path)
     inference.add_argument("--next-support", type=Path)
 
-    opr = sub.add_parser("train-opr")
-    opr.add_argument("--checkpoint", type=Path, required=True)
-    opr.add_argument("--stage", type=int, choices=range(8), required=True)
-    opr.add_argument("--seed", type=int, default=3407)
-    opr.add_argument("--support", type=Path)
-    opr.add_argument("--output", type=Path, required=True)
+    for command in ("train-sequential", "train-replay", "train-opr"):
+        sft = sub.add_parser(command)
+        sft.add_argument("--checkpoint", type=Path, required=True)
+        sft.add_argument("--stage", type=int, choices=range(8), required=True)
+        sft.add_argument("--seed", type=int, default=3407)
+        sft.add_argument("--support", type=Path)
+        sft.add_argument("--output", type=Path, required=True)
 
     cagd = sub.add_parser("train-cagd")
     cagd.add_argument("--checkpoint", type=Path, required=True)
@@ -1014,9 +1017,15 @@ def parser() -> argparse.ArgumentParser:
     cagd.add_argument("--smoke", action="store_true")
     cagd.add_argument("--output", type=Path, required=True)
 
+    sdft = sub.add_parser("train-sdft")
+    sdft.add_argument("--checkpoint", type=Path, required=True)
+    sdft.add_argument("--stage", type=int, choices=range(8), required=True)
+    sdft.add_argument("--seed", type=int, default=3407)
+    sdft.add_argument("--output", type=Path, required=True)
+
     summary = sub.add_parser("summarize")
     summary.add_argument("--run", type=Path, required=True)
-    summary.add_argument("--method", choices=("opr", "cagd"), required=True)
+    summary.add_argument("--method", choices=("sequential", "replay", "sdft", "opr", "cagd"), required=True)
     return result
 
 
@@ -1029,10 +1038,12 @@ def main() -> None:
         write_json(args.output, model_inventory(args.model))
     elif args.command == "stage-inference":
         stage_inference(args)
-    elif args.command == "train-opr":
-        train_opr(args)
+    elif args.command in ("train-sequential", "train-replay", "train-opr"):
+        train_sft(args)
     elif args.command == "train-cagd":
         train_cagd(args)
+    elif args.command == "train-sdft":
+        train_sdft(args)
     elif args.command == "summarize":
         summarize(args)
 
