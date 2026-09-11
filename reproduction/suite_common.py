@@ -17,6 +17,12 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 PYTHON = Path(os.environ.get("PAPER_PYTHON", "/home/JJ_Group/lih2511/.conda/envs/opr/bin/python"))
+AR_PYTHON = Path(os.environ.get("AR_PYTHON", PYTHON))
+SMDM_PYTHON = Path(os.environ.get(
+    "SMDM_PYTHON",
+    PYTHON if "PAPER_PYTHON" in os.environ else "/home/JJ_Group/lih2511/.conda/envs/smdm-baseline/bin/python",
+))
+SMDM_MODULES = {"smdm_factual", "smdm_natural", "smdm_gsm8k", "smdm_parameter_controls"}
 
 SMDM_MODELS = {
     "smdm_219m": {
@@ -110,7 +116,8 @@ def scope(args, backend: str) -> str:
 
 
 def python_command(module: str, *arguments: object) -> tuple[str, ...]:
-    return (str(PYTHON), "-m", f"reproduction.{module}", *(str(item) for item in arguments))
+    executable = SMDM_PYTHON if module in SMDM_MODULES else AR_PYTHON
+    return (str(executable), "-m", f"reproduction.{module}", *(str(item) for item in arguments))
 
 
 def valid_result(path: Path) -> bool:
@@ -219,7 +226,7 @@ def self_check() -> None:
         text = path.read_text(encoding="utf-8")
         offenders.extend(f"{path.name}: {token}" for token in forbidden if token in text)
     assert not offenders, "legacy code dependency: " + ", ".join(offenders)
-    assert SMDM_MODELS and QWEN_MODELS and PYTHON.is_absolute()
+    assert SMDM_MODELS and QWEN_MODELS and all(path.is_absolute() for path in (PYTHON, AR_PYTHON, SMDM_PYTHON))
     print(json.dumps({"self_check": "ok", "independent_files": len(list(Path(__file__).parent.glob("*")))}))
 
 
