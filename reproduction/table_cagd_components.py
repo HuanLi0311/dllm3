@@ -10,7 +10,7 @@ def main() -> None:
     model, trainable = SMDM_MODELS[args.model], scope(args, "smdm")
     cells = []
     for seed in seeds(args):
-        for method in ("hard_replay", "real_replay", "cagd"):
+        for method in ("seq", "hard_replay", "real_replay", "cagd"):
             output = args.run_root / "cells" / method / f"s{seed}.json"
             cells.append(Cell(
                 f"{method}-s{seed}",

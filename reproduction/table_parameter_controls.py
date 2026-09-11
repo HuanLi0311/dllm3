@@ -30,6 +30,24 @@ def main() -> None:
                             "method": method, "seed": seed,
                         },
                     ))
+    if "smdm_219m" in split_words(args.models):
+        model = SMDM_MODELS["smdm_219m"]
+        for seed in seeds(args):
+            for method, coefficient in (("rank1", 100_000), ("diagonal", 1_000)):
+                output = args.run_root / "cells" / "smdm_219m" / "four_task_ewc" / method / f"s{seed}.json"
+                cells.append(Cell(
+                    f"smdm_219m-four-task-{method}-s{seed}",
+                    python_command(
+                        "smdm_factual", "--method", method, "--checkpoint", model["path"],
+                        "--model", model["config"], "--trainable", scope(args, "smdm"),
+                        "--order", "forward", "--group-start", 8, "--tasks", 4, "--group-count", 4,
+                        "--eval-mc-samples", 32, "--ewc-lambda", coefficient,
+                        "--seed", seed, "--generation-seed", seed, "--output", output,
+                    ), output, {
+                        "study": "four_task_ewc", "model": model["display"], "backend": "smdm",
+                        "order": "forward", "method": method, "seed": seed,
+                    },
+                ))
     run_cells(cells, args)
     if not args.dry_run:
         summarize_cells("table_parameter_controls", cells, args.run_root / "summary.json", args.resume)
