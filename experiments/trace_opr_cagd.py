@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import encodings.unicode_escape  # Preload before distributed workers compile the Jinja chat template.
 import hashlib
 import json
 import os
