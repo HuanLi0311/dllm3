@@ -32,9 +32,9 @@ except ImportError:
 
 
 ROOT = Path(__file__).resolve().parents[1]
-GSM_TEST = ROOT / "SMDM/data/gsm8k/test.jsonl"
-GSM_TRAIN = ROOT / "SMDM/data/gsm8k/train_no_aug.txt"
-REVERSE_DIR = ROOT / "SMDM/data/reverse_experiments/june_version_7921032488"
+GSM_TEST = ROOT / "third_party/SMDM/data/gsm8k/test.jsonl"
+GSM_TRAIN = ROOT / "third_party/SMDM/data/gsm8k/train_no_aug.txt"
+REVERSE_DIR = ROOT / "third_party/SMDM/data/reverse_experiments/june_version_7921032488"
 
 
 def read_jsonl(path: Path) -> list[dict]:
@@ -399,7 +399,7 @@ def self_check() -> None:
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--checkpoint", type=Path, default=ROOT / "checkpoints/mdm_safetensors/mdm-170M-100e18.safetensors")
+    parser.add_argument("--checkpoint", type=Path, default=ROOT.parent / "checkpoints/mdm_safetensors/mdm-170M-100e18.safetensors")
     parser.add_argument("--tokenizer", type=Path, default=ROOT / "tokenizer")
     parser.add_argument("--model", type=int, default=170)
     parser.add_argument("--device", default="cuda")

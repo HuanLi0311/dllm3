@@ -22,7 +22,7 @@ os.environ.setdefault("PYTHONNOUSERSITE", "1")
 
 
 ROOT = Path(__file__).resolve().parents[1]
-SMDM = ROOT / "SMDM"
+SMDM = ROOT / "third_party/SMDM"
 if str(SMDM) not in sys.path:
     sys.path.insert(0, str(SMDM))
 
@@ -864,7 +864,7 @@ def self_check() -> None:
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--checkpoint", type=Path, default=ROOT / "checkpoints/mdm_safetensors/mdm-170M-100e18.safetensors")
+    parser.add_argument("--checkpoint", type=Path, default=ROOT.parent / "checkpoints/mdm_safetensors/mdm-170M-100e18.safetensors")
     parser.add_argument("--tokenizer", type=Path, default=ROOT / "tokenizer")
     parser.add_argument("--model", type=int, default=170)
     parser.add_argument("--device", default="cuda")

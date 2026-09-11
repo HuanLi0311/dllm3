@@ -666,7 +666,7 @@ def parse_args(argv=None):
     parser.add_argument("--method", choices=("seq", "gd", "diagonal", "diag_gd", "rank1", "rank1_gd"), default="gd")
     parser.add_argument("--checkpoint", type=Path, default=ROOT.parent / "checkpoints/mdm_safetensors/mdm-170M-100e18.safetensors")
     parser.add_argument("--tokenizer", type=Path, default=ROOT / "tokenizer")
-    parser.add_argument("--reverse-dir", type=Path, default=ROOT / "SMDM/data/reverse_experiments/june_version_7921032488")
+    parser.add_argument("--reverse-dir", type=Path, default=ROOT / "third_party/SMDM/data/reverse_experiments/june_version_7921032488")
     parser.add_argument("--cache-prefix", type=Path)
     parser.add_argument("--prepare-output", type=Path)
     parser.add_argument("--output", type=Path)

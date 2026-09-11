@@ -848,7 +848,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--checkpoint", type=Path, default=ROOT.parent / "checkpoints/mdm_safetensors/mdm-170M-100e18.safetensors")
     parser.add_argument("--tokenizer", type=Path, default=ROOT / "tokenizer")
-    parser.add_argument("--reverse-dir", type=Path, default=ROOT / "SMDM/data/reverse_experiments/june_version_7921032488")
+    parser.add_argument("--reverse-dir", type=Path, default=ROOT / "third_party/SMDM/data/reverse_experiments/june_version_7921032488")
     parser.add_argument("--output", type=Path)
     parser.add_argument("--model", type=int, default=170)
     parser.add_argument("--start-direction", choices=("d2p", "p2d"), default="d2p")

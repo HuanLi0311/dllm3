@@ -486,7 +486,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--seed", type=int, choices=SEEDS, default=3407)
     parser.add_argument("--checkpoint", type=Path)
     parser.add_argument("--tokenizer", type=Path, default=ROOT / "tokenizer")
-    parser.add_argument("--reverse-dir", type=Path, default=ROOT / "SMDM/data/reverse_experiments/june_version_7921032488")
+    parser.add_argument("--reverse-dir", type=Path, default=ROOT / "third_party/SMDM/data/reverse_experiments/june_version_7921032488")
     parser.add_argument("--device", default="cuda")
     parser.add_argument("--output", type=Path)
     parser.add_argument("--self-check", action="store_true")

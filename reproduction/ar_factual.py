@@ -27,7 +27,7 @@ PROTOCOL_TAGS = {
     "qwen3_1.7b": "qwen_continual_scale_1.7b_addendum_v1",
     "qwen3_4b": "qwen_continual_scale_v1",
 }
-DEFAULT_REVERSE = ROOT / "SMDM/data/reverse_experiments/june_version_7921032488"
+DEFAULT_REVERSE = ROOT / "third_party/SMDM/data/reverse_experiments/june_version_7921032488"
 SEEDS = (3407, 3408, 3409)
 METHODS = ("seq", "gd", "rank1_gd", "diag_gd")
 SPECS = {

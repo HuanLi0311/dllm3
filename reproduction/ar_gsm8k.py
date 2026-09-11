@@ -42,8 +42,8 @@ METHODS = ("seq", "cagd")
 SEEDS = (3407, 3408, 3409)
 TASKS = ("gsm8k", "summarization", "creative_writing")
 PROTOCOL = ROOT / "report/cagd_gsm8k_behavior_protocol.md"
-GSM_TRAIN = ROOT / "SMDM/data/gsm8k/train_no_aug.txt"
-GSM_TEST = ROOT / "SMDM/data/gsm8k/test.jsonl"
+GSM_TRAIN = ROOT / "third_party/SMDM/data/gsm8k/train_no_aug.txt"
+GSM_TEST = ROOT / "third_party/SMDM/data/gsm8k/test.jsonl"
 DOLLY = ROOT / "runs/data/dolly_natural_stream.jsonl"
 DEPENDENCIES = (
     ROOT / "reproduction/ar_natural.py",

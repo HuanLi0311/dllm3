@@ -530,7 +530,7 @@ def run(args) -> dict:
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--checkpoint", type=Path, default=ROOT / "checkpoints/mdm_safetensors/mdm-170M-100e18.safetensors")
+    parser.add_argument("--checkpoint", type=Path, default=ROOT.parent / "checkpoints/mdm_safetensors/mdm-170M-100e18.safetensors")
     parser.add_argument("--tokenizer", type=Path, default=ROOT / "tokenizer")
     parser.add_argument("--reverse-dir", type=Path, default=REVERSE_DIR)
     parser.add_argument("--task-a", choices=("p2d", "d2p"), default="p2d")
