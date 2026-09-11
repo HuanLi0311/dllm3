@@ -44,6 +44,12 @@ DATA_HASHES = {
 }
 QWEN_CACHE = Path(os.environ.get("HF_HOME", str(Path.home() / ".cache/huggingface"))) / "hub"
 MODEL_SPECS = {
+    "qwen3_0.6b": {
+        "backend": "ar",
+        "display_name": "Qwen3-0.6B",
+        "path": QWEN_CACHE / "models--Qwen--Qwen3-0.6B/snapshots/c1899de289a04d12100db370d81485cdf75e47ca",
+        "inventory_sha256": "768bd5491a8c872f18c9edb62a8c4ece300963443fb1fa8b7b7be1d3d1fc053b",
+    },
     "qwen3_1.7b": {
         "backend": "ar",
         "display_name": "Qwen3-1.7B",
@@ -638,7 +644,7 @@ def _self_check() -> None:
             del skip_special_tokens
             return ",".join(map(str, ids))
 
-    assert set(MODEL_SPECS) == {"qwen3_1.7b", "qwen3_4b", "smdm_219m", "smdm_1.14b"}
+    assert set(MODEL_SPECS) == {"qwen3_0.6b", "qwen3_1.7b", "qwen3_4b", "smdm_219m", "smdm_1.14b"}
     assert qwen_base._extract_answer("work\n#### 1,234") == ("1234", True)
     assert qwen_base._extract_answer("therefore -2.50") == ("-5/2", False)
     train, evaluate = qwen_base._raw_gsm()
