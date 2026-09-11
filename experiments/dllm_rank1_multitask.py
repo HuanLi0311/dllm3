@@ -192,6 +192,7 @@ def _train_stage(
         "penalty": 0.0,
         "total": 0.0,
     }
+    step_loss = [] if args.record_step_loss else None
     penalty_max = 0.0
     gradient_norm_max = 0.0
     clipped_steps = 0
@@ -244,6 +245,8 @@ def _train_stage(
             "penalty": float(penalty.detach().cpu()),
             "total": float(total.detach().cpu()),
         }
+        if step_loss is not None:
+            step_loss.append({"step": step + 1, **values})
         for key, value in values.items():
             totals[key] += value
         penalty_max = max(penalty_max, values["penalty"])
@@ -267,6 +270,7 @@ def _train_stage(
         "hard_replay_loss_weighted_mean": (
             args.distill_weight * totals["hard_replay"] / args.steps_per_task
         ),
+        **({"step_loss": step_loss} if step_loss is not None else {}),
     }
 
 
@@ -428,6 +432,7 @@ def _metadata(args, tasks) -> dict:
         "ewc_lambda": args.ewc_lambda,
         "seed": args.seed,
         "generation_seed": args.generation_seed,
+        "records_step_loss": args.record_step_loss,
     }
     if cagd_locked:
         metadata.update({
