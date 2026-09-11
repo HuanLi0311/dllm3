@@ -16,7 +16,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-PYTHON = Path(os.environ.get("PAPER_PYTHON", sys.executable))
+PYTHON = Path(os.environ.get("PAPER_PYTHON", "/home/JJ_Group/lih2511/.conda/envs/opr/bin/python"))
 
 SMDM_MODELS = {
     "smdm_219m": {
