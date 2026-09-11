@@ -964,8 +964,10 @@ def self_check() -> None:
     assert toy[2] == {"current": current[2], "anchor": anchors[0], "input_ids": current[2]["input_ids"]}
     assert generation_length(TASKS.index("C-STANCE")) == 1
     assert generation_length(TASKS.index("ScienceQA")) == 512
-    assert sdft_teacher_prompt("question", "answer").count("question") == 1
-    assert "answer" in sdft_teacher_prompt("question", "answer")
+    teacher_prompt = sdft_teacher_prompt("question", "answer")
+    assert teacher_prompt.startswith("question\n\nThis is an example")
+    assert "\nanswer\n\n" in teacher_prompt
+    assert teacher_prompt.endswith("including the thinking process.")
     if int(os.environ.get("WORLD_SIZE", "1")) > 1:
         import torch
         import torch.distributed as dist
