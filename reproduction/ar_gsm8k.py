@@ -314,6 +314,7 @@ def run(args) -> dict:
             "gsm8k_exact_match_when_learned": learned,
             "gsm8k_exact_match_final": final,
             "gsm8k_retention_change": final - learned,
+            "format_compliance_final": stages[-1]["benchmark"]["delimiter_rate"],
             "final_task_loss": stages[-1]["current_metrics"]["loss"],
             "final_task_answer_token_accuracy": stages[-1]["current_metrics"]["answer_token_accuracy"],
         },
