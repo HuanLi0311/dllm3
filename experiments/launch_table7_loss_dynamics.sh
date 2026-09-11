@@ -9,7 +9,8 @@ python=/home/JJ_Group/lih2511/.conda/envs/smdm-baseline/bin/python
 pids=()
 
 run_cell() {
-  local order=$1 method=$2 seed=$3 gpu=$4 label=$method
+  local order=$1 method=$2 seed=$3 gpu=$4
+  local label=$method
   test "$method" != gd || label=cagd
   local stem="${order}_${label}_s${seed}"
   local output="$root/$order/s$seed/$label.json"
