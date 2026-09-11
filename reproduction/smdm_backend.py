@@ -21,7 +21,7 @@ if USER_SITE in sys.path:
 os.environ.setdefault("PYTHONNOUSERSITE", "1")
 
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parents[1]
 SMDM = ROOT / "SMDM"
 if str(SMDM) not in sys.path:
     sys.path.insert(0, str(SMDM))
@@ -901,4 +901,3 @@ if __name__ == "__main__":
         self_check()
     else:
         run(args)
-

@@ -18,8 +18,8 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from experiments import qwen_cagd_natural as base  # noqa: E402
-from experiments.qwen_continual_transfer import (  # noqa: E402
+from reproduction import ar_natural as base  # noqa: E402
+from reproduction.ar_factual import (  # noqa: E402
     _evaluate,
     _evaluation_mode,
     _generate_replay,
@@ -45,8 +45,8 @@ SELECTED_IDS = {
 PROTOCOL = ROOT / "report/cagd_qualitative_examples_protocol.md"
 DATA = ROOT / "runs/data/dolly_natural_stream.jsonl"
 MANIFEST = ROOT / "runs/data/dolly_natural_stream_manifest.json"
-BASE_RUNNER = ROOT / "experiments/qwen_cagd_natural.py"
-DEPENDENCY = ROOT / "experiments/qwen_continual_transfer.py"
+BASE_RUNNER = ROOT / "reproduction/ar_natural.py"
+DEPENDENCY = ROOT / "reproduction/ar_factual.py"
 ARCHIVE_ROOT = ROOT / "runs/cagd_natural/formal/qwen/s3407"
 LOCKED_HASHES = {
     BASE_RUNNER: "4a8be25e92865127c46ca12c0359de1692f866692849581d23da4c92aba8feea",
@@ -275,4 +275,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

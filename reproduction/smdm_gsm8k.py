@@ -25,11 +25,11 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from experiments import cagd_gsm8k_scale as base  # noqa: E402
+from reproduction import gsm8k_scale as base  # noqa: E402
 
 
 PROTOCOL = ROOT / "report/cagd_gsm8k_scale_attempt2_protocol.md"
-BASE_RUNNER = ROOT / "experiments/cagd_gsm8k_scale.py"
+BASE_RUNNER = ROOT / "reproduction/gsm8k_scale.py"
 SMDM_MODELS = ("smdm_219m", "smdm_1.14b")
 SCHEMA_VERSION = 1
 
@@ -246,7 +246,7 @@ def _audit_canonical(args, spec: dict, tasks: list[dict], source_hash: str,
 def _load_context(args, spec: dict):
     import torch
     from transformers import AutoTokenizer
-    from continual_mdm import load_model, trainable_parameters
+    from reproduction.smdm_backend import load_model, trainable_parameters
 
     device = torch.device(args.device)
     if device.type != "cuda" or not torch.cuda.is_available():
@@ -270,8 +270,8 @@ def _stage0(args, spec: dict, source_hash: str, protocol_hash: str,
             dependencies: dict) -> dict:
     import torch
     import transformers
-    from continual_mdm import set_seed
-    from experiments.dllm_rank1_multitask import _train_stage
+    from reproduction.smdm_backend import set_seed
+    from reproduction.smdm_factual import _train_stage
 
     started = time.monotonic()
     set_seed(args.seed)
@@ -351,9 +351,9 @@ def _branch(args, spec: dict, source_hash: str, protocol_hash: str,
     import torch
     import transformers
     from safetensors.torch import load_file
-    from continual_mdm import answer_token_accuracy, load_model, set_seed
-    from experiments.dllm_rank1_multitask import _train_stage
-    from experiments.dllm_rank1_transfer import _evaluate_loss
+    from reproduction.smdm_backend import answer_token_accuracy, load_model, set_seed
+    from reproduction.smdm_factual import _train_stage
+    from reproduction.smdm_transfer import _evaluate_loss
 
     started = time.monotonic()
     set_seed(args.seed)
@@ -632,4 +632,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

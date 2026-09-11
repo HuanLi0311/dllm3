@@ -21,7 +21,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from experiments.qwen_cagd_natural import (  # noqa: E402
+from reproduction.ar_natural import (  # noqa: E402
     DEFAULT_MODEL,
     _anchors,
     _encode,
@@ -29,7 +29,7 @@ from experiments.qwen_cagd_natural import (  # noqa: E402
     _sha256,
     _train,
 )
-from experiments.qwen_continual_transfer import (  # noqa: E402
+from reproduction.ar_factual import (  # noqa: E402
     _evaluate,
     _evaluation_mode,
     _generate_replay,
@@ -383,4 +383,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

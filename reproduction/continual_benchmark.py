@@ -10,7 +10,7 @@ from pathlib import Path
 import torch
 
 try:
-    from .continual_mdm import (
+    from .smdm_backend import (
         MASK_ID,
         estimate_fisher,
         flat_parameters,
@@ -20,7 +20,7 @@ try:
         trainable_parameters,
     )
 except ImportError:
-    from continual_mdm import (
+    from reproduction.smdm_backend import (
         MASK_ID,
         estimate_fisher,
         flat_parameters,
@@ -31,7 +31,7 @@ except ImportError:
     )
 
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parents[1]
 GSM_TEST = ROOT / "SMDM/data/gsm8k/test.jsonl"
 GSM_TRAIN = ROOT / "SMDM/data/gsm8k/train_no_aug.txt"
 REVERSE_DIR = ROOT / "SMDM/data/reverse_experiments/june_version_7921032488"
@@ -453,4 +453,3 @@ if __name__ == "__main__":
         self_check()
     else:
         run(args)
-

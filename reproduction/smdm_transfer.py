@@ -23,15 +23,15 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from continual_benchmark import MASK_ID, diff_generate_batch, encode_benchmark_rows  # noqa: E402
-from continual_mdm import (  # noqa: E402
+from reproduction.continual_benchmark import MASK_ID, diff_generate_batch, encode_benchmark_rows  # noqa: E402
+from reproduction.smdm_backend import (  # noqa: E402
     answer_token_accuracy,
     flat_parameters,
     load_model,
     set_seed,
     trainable_parameters,
 )
-from continual_reverse import fact_rows, measure  # noqa: E402
+from reproduction.continual_reverse import fact_rows, measure  # noqa: E402
 
 
 def _utc_now() -> str:
@@ -750,4 +750,3 @@ def main(argv=None):
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

@@ -20,7 +20,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from experiments.qwen_continual_transfer import (  # noqa: E402
+from reproduction.ar_factual import (  # noqa: E402
     _answer_losses,
     _distillation_loss,
     _evaluate,
@@ -398,4 +398,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

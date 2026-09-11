@@ -19,14 +19,10 @@ import torch
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
-EXPERIMENTS = ROOT / "experiments"
-if str(EXPERIMENTS) not in sys.path:
-    sys.path.insert(0, str(EXPERIMENTS))
-
-from continual_benchmark import encode_benchmark_rows  # noqa: E402
-from continual_mdm import answer_token_accuracy, load_model, set_seed, trainable_parameters  # noqa: E402
-from experiments.dllm_rank1_multitask import _records_sha256, _train_stage  # noqa: E402
-from experiments.dllm_rank1_transfer import _evaluate_loss, _generate_replay  # noqa: E402
+from reproduction.continual_benchmark import encode_benchmark_rows  # noqa: E402
+from reproduction.smdm_backend import answer_token_accuracy, load_model, set_seed, trainable_parameters  # noqa: E402
+from reproduction.smdm_factual import _records_sha256, _train_stage  # noqa: E402
+from reproduction.smdm_transfer import _evaluate_loss, _generate_replay  # noqa: E402
 
 
 TASKS = ("closed_qa", "summarization", "creative_writing")
@@ -360,4 +356,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

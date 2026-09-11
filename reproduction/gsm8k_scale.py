@@ -26,7 +26,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from experiments import qwen_cagd_gsm8k_behavior as qwen_base  # noqa: E402
+from reproduction import ar_gsm8k as qwen_base  # noqa: E402
 
 
 METHODS = ("seq", "cagd")
@@ -101,13 +101,13 @@ SMDM_FORMAL_SETTINGS = {
     "ewc_lambda": 0.0,
 }
 DEPENDENCIES = (
-    ROOT / "continual_benchmark.py",
-    ROOT / "continual_mdm.py",
-    ROOT / "experiments/dllm_rank1_multitask.py",
-    ROOT / "experiments/dllm_rank1_transfer.py",
-    ROOT / "experiments/qwen_cagd_gsm8k_behavior.py",
-    ROOT / "experiments/qwen_cagd_natural.py",
-    ROOT / "experiments/qwen_continual_transfer.py",
+    ROOT / "reproduction/continual_benchmark.py",
+    ROOT / "reproduction/smdm_backend.py",
+    ROOT / "reproduction/smdm_factual.py",
+    ROOT / "reproduction/smdm_transfer.py",
+    ROOT / "reproduction/ar_gsm8k.py",
+    ROOT / "reproduction/ar_natural.py",
+    ROOT / "reproduction/ar_factual.py",
 )
 
 
@@ -258,7 +258,7 @@ def _run_qwen(args, spec: dict, source_hash: str, protocol_hash: str, dependenci
 
 
 def _raw_tasks(tokenizer, max_length: int) -> list[dict]:
-    from continual_benchmark import encode_benchmark_rows
+    from reproduction.continual_benchmark import encode_benchmark_rows
 
     gsm_train, gsm_eval = qwen_base._raw_gsm()
     dolly = [json.loads(line) for line in DOLLY.read_text().splitlines() if line.strip()]
@@ -331,7 +331,7 @@ def _diffuse_equal_prompt_length(model, prompt_ids: list, device, steps: int,
                                  max_new_tokens: int, cfg: float):
     """Greedy masked-diffusion decoding with per-example transfer counts."""
     import torch
-    from continual_benchmark import MASK_ID
+    from reproduction.continual_benchmark import MASK_ID
 
     if not prompt_ids or len({len(row) for row in prompt_ids}) != 1:
         raise ValueError("generation batch must have one exact prompt length")
@@ -449,9 +449,9 @@ def _run_smdm(args, spec: dict, source_hash: str, protocol_hash: str,
     import torch
     import transformers
     from transformers import AutoTokenizer
-    from continual_mdm import answer_token_accuracy, load_model, set_seed, trainable_parameters
-    from experiments.dllm_rank1_multitask import _train_stage
-    from experiments.dllm_rank1_transfer import _evaluate_loss
+    from reproduction.smdm_backend import answer_token_accuracy, load_model, set_seed, trainable_parameters
+    from reproduction.smdm_factual import _train_stage
+    from reproduction.smdm_transfer import _evaluate_loss
 
     started = time.monotonic()
     set_seed(args.seed)
@@ -715,4 +715,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

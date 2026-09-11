@@ -18,7 +18,7 @@ try:
         score_reverse,
         select,
     )
-    from .continual_mdm import (
+    from .smdm_backend import (
         RANKK_DIRECTION_BLOCK_SIZE,
         estimate_fisher,
         flat_parameters,
@@ -31,7 +31,7 @@ try:
         trainable_parameters,
     )
 except ImportError:
-    from continual_benchmark import (
+    from reproduction.continual_benchmark import (
         REVERSE_DIR,
         encode_benchmark_rows,
         read_jsonl,
@@ -39,7 +39,7 @@ except ImportError:
         score_reverse,
         select,
     )
-    from continual_mdm import (
+    from reproduction.smdm_backend import (
         RANKK_DIRECTION_BLOCK_SIZE,
         estimate_fisher,
         flat_parameters,
@@ -53,7 +53,7 @@ except ImportError:
     )
 
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parents[1]
 
 
 def direction_rows(directory: Path, direction: str, split: str, size: int, seed: int) -> list[dict]:
@@ -586,4 +586,3 @@ def parse_args():
 
 if __name__ == "__main__":
     run(parse_args())
-

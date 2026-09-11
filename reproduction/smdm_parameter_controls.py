@@ -22,9 +22,9 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from continual_mdm import flat_parameters, load_model, set_seed, trainable_parameters  # noqa: E402
-import dllm_rank1_multitask as multitask  # noqa: E402
-import dllm_rank1_transfer as transfer  # noqa: E402
+from reproduction.smdm_backend import flat_parameters, load_model, set_seed, trainable_parameters  # noqa: E402
+from reproduction import smdm_factual as multitask  # noqa: E402
+from reproduction import smdm_transfer as transfer  # noqa: E402
 
 
 METHODS = ("gd", "rank1_gd", "diag_gd")
@@ -548,4 +548,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
