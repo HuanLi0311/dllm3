@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Reproduce the locked full-parameter TRACE comparison of CAGD and OPR-RU."""
+"""Run the locked full-parameter TRACE continual-learning comparison."""
 
 from __future__ import annotations
 
@@ -42,6 +42,10 @@ MAX_LENGTH = 2048
 BUFFER_SIZE = 50
 MICRO_BATCH = 4
 GRADIENT_ACCUMULATION = 4
+SDFT_MICRO_BATCH = 1
+SDFT_GRADIENT_ACCUMULATION = 16
+SDFT_EMA_RATE = 0.01
+SDFT_KL_CHUNK = 16
 
 
 def configure_task_order(order: str) -> None:
@@ -254,6 +258,29 @@ def make_cagd_anchors(llm, tokenizer, stage: int, seed: int) -> list[dict]:
     return anchors
 
 
+def make_replay_buffer(tokenizer, stage: int, seed: int) -> list[dict]:
+    selected = []
+    for task_id, keep in enumerate(allocations(BUFFER_SIZE, stage)):
+        rows = load_eligible(tokenizer, task_id, "train")
+        indices = list(range(len(rows)))
+        random.Random(seed * 1000 + task_id).shuffle(indices)
+        selected.extend(
+            {**rows[index], "source_task": TASKS[task_id], "source_index": index}
+            for index in indices[:keep]
+        )
+    assert len(selected) == BUFFER_SIZE
+    return selected
+
+
+def sdft_teacher_prompt(prompt: str, answer: str) -> str:
+    return (
+        f"{prompt}\n\n"
+        "This is an example for a response to the question:\n"
+        f"{answer}\n\n"
+        "Now answer with a response of your own, including the thinking process."
+    )
+
+
 def stage_inference(args) -> None:
     if args.evaluation is None and args.next_support is None:
         raise ValueError("stage-inference needs --evaluation and/or --next-support")
@@ -261,12 +288,13 @@ def stage_inference(args) -> None:
         raise ValueError("the final stage has no next-task support")
     from transformers import AutoTokenizer
 
-    # Load the official scorers before vLLM initializes CUDA worker processes.
-    official_tools()
     tokenizer = AutoTokenizer.from_pretrained(args.checkpoint, trust_remote_code=True)
-    llm = make_llm(args.checkpoint, args.seed)
-    task_ids = list(range(args.stage + 1)) if args.stage == len(TASKS) - 1 else [args.stage]
+    llm = None
     if args.evaluation is not None:
+        # Load the official scorers before vLLM initializes CUDA worker processes.
+        official_tools()
+        llm = make_llm(args.checkpoint, args.seed)
+        task_ids = list(range(args.stage + 1)) if args.stage == len(TASKS) - 1 else [args.stage]
         evaluation = {
             "checkpoint": str(args.checkpoint),
             "stage": args.stage,
@@ -276,15 +304,23 @@ def stage_inference(args) -> None:
         write_json(args.evaluation, evaluation)
     if args.next_support is not None:
         next_stage = args.stage + 1
-        rows = (
-            make_opr_buffer(llm, tokenizer, next_stage)
-            if args.method == "opr"
-            else make_cagd_anchors(llm, tokenizer, next_stage, args.seed)
-        )
+        if args.method == "replay":
+            rows = make_replay_buffer(tokenizer, next_stage, args.seed)
+        elif args.method == "opr":
+            if llm is None:
+                official_tools()
+                llm = make_llm(args.checkpoint, args.seed)
+            rows = make_opr_buffer(llm, tokenizer, next_stage)
+        elif args.method == "cagd":
+            if llm is None:
+                llm = make_llm(args.checkpoint, args.seed)
+            rows = make_cagd_anchors(llm, tokenizer, next_stage, args.seed)
+        else:
+            raise ValueError(f"{args.method} does not construct replay support")
         write_jsonl(args.next_support, rows)
 
 
-def train_opr(args) -> None:
+def train_sft(args) -> None:
     if args.output.exists():
         raise FileExistsError(f"refusing to reuse {args.output}")
     started = time.time()
@@ -398,7 +434,11 @@ def train_opr(args) -> None:
         write_json(
             args.output / "stage_result.json",
             {
-                "method": "shared" if args.stage == 0 else "opr-ru",
+                "method": "shared" if args.stage == 0 else {
+                    "train-sequential": "sequential",
+                    "train-replay": "vanilla-replay",
+                    "train-opr": "opr-ru",
+                }[args.command],
                 "stage": args.stage,
                 "task": TASKS[args.stage],
                 "task_order": list(TASKS),
