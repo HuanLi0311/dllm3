@@ -1046,6 +1046,36 @@ def summarize_comparison(args) -> None:
     write_json(output, result)
 
 
+def summarize_suite(args) -> None:
+    from reproduction.suite_common import aggregate_rows
+
+    rows = []
+    for order in args.orders:
+        suffix = "" if order == "canonical" else "_reverse"
+        for seed in args.seeds:
+            comparison = json.loads(
+                (args.run_root / f"seed{seed}{suffix}" / "summary.json").read_text(encoding="utf-8")
+            )
+            rows.extend({"order": order, "seed": seed, **row} for row in comparison["rows"])
+    dimension_names = ["method", "order", "seed"]
+    aggregates, differences = aggregate_rows(rows, dimension_names)
+    result = {
+        "schema_version": 2,
+        "status": "ok",
+        "experiment": "trace_comparison",
+        "dimension_names": dimension_names,
+        "rows": rows,
+        "aggregates": aggregates,
+        "paired_differences": differences,
+    }
+    output = args.run_root / "summary.json"
+    if output.exists():
+        if json.loads(output.read_text(encoding="utf-8")) != result:
+            raise ValueError(f"existing suite summary differs: {output}")
+        return
+    write_json(output, result)
+
+
 def self_check() -> None:
     assert allocations(50, 3) == [17, 17, 16]
     assert allocations(50, 7) == [8, 7, 7, 7, 7, 7, 7]
@@ -1134,6 +1164,10 @@ def parser() -> argparse.ArgumentParser:
     comparison.add_argument(
         "--methods", nargs="+", choices=("sequential", "replay", "sdft", "opr", "cagd"), required=True
     )
+    suite = sub.add_parser("summarize-suite")
+    suite.add_argument("--run-root", type=Path, required=True)
+    suite.add_argument("--seeds", nargs="+", type=int, required=True)
+    suite.add_argument("--orders", nargs="+", choices=("canonical", "reverse"), required=True)
     return result
 
 
@@ -1156,6 +1190,8 @@ def main() -> None:
         summarize(args)
     elif args.command == "summarize-comparison":
         summarize_comparison(args)
+    elif args.command == "summarize-suite":
+        summarize_suite(args)
 
 
 if __name__ == "__main__":
