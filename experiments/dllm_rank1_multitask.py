@@ -178,6 +178,7 @@ def _train_stage(
     replay_rows=None,
     replay_objective=None,
     constraints=None,
+    eval_tasks=None,
 ) -> dict:
     started = time.monotonic()
     optimizer = torch.optim.AdamW(parameters, lr=args.lr, weight_decay=0.0)
@@ -193,6 +194,7 @@ def _train_stage(
         "total": 0.0,
     }
     step_loss = [] if args.record_step_loss else None
+    eval_loss = [] if args.record_eval_loss_every else None
     penalty_max = 0.0
     gradient_norm_max = 0.0
     clipped_steps = 0
@@ -247,6 +249,20 @@ def _train_stage(
         }
         if step_loss is not None:
             step_loss.append({"step": step + 1, **values})
+        if eval_loss is not None and (
+            (step + 1) % args.record_eval_loss_every == 0 or step + 1 == args.steps_per_task
+        ):
+            eval_loss.append({
+                "step": step + 1,
+                "losses": {
+                    task["name"]: _evaluate_loss(
+                        model, task["eval_loss"], pad_id, device, args,
+                        args.seed + 81_001 + 100 * task["task_index"],
+                    )
+                    for task in (eval_tasks or [])
+                },
+            })
+            model.train()
         for key, value in values.items():
             totals[key] += value
         penalty_max = max(penalty_max, values["penalty"])
@@ -271,6 +287,7 @@ def _train_stage(
             args.distill_weight * totals["hard_replay"] / args.steps_per_task
         ),
         **({"step_loss": step_loss} if step_loss is not None else {}),
+        **({"eval_loss": eval_loss} if eval_loss is not None else {}),
     }
 
 
@@ -433,6 +450,7 @@ def _metadata(args, tasks) -> dict:
         "seed": args.seed,
         "generation_seed": args.generation_seed,
         "records_step_loss": args.record_step_loss,
+        "eval_loss_recording_interval": args.record_eval_loss_every,
     }
     if cagd_locked:
         metadata.update({
@@ -635,6 +653,7 @@ def run(args) -> dict:
                     else None
                 ),
                 constraints=constraints,
+                eval_tasks=tasks[: stage + 1],
             )
             if teacher is not None:
                 del teacher
@@ -739,6 +758,7 @@ def _self_check() -> None:
         distill_weight=1.0, distill_temperature=1.0, ewc_lambda=0.0, lr=5e-5,
         clip=1.0, method="gd", seed=3407, generation_seed=3407,
         record_step_loss=False,
+        record_eval_loss_every=0,
         final_protocol=True, fresh_protocol=False,
         cagd_protocol=False, cagd_fresh_protocol=False, cagd_two_task_protocol=False,
     )
@@ -863,6 +883,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--generation-seed", type=int)
     parser.add_argument("--show-predictions", action="store_true")
     parser.add_argument("--record-step-loss", action="store_true")
+    parser.add_argument("--record-eval-loss-every", type=int, default=0)
     parser.add_argument("--self-check", action="store_true")
     parser.add_argument("--final-protocol", action="store_true")
     parser.add_argument("--fresh-protocol", action="store_true")
@@ -890,6 +911,8 @@ def parse_args() -> argparse.Namespace:
         parser.error("protocol flags are mutually exclusive")
     if args.tasks < 2 or args.group_count < 1 or args.fisher_per_fact < 1:
         parser.error("tasks >= 2, group_count >= 1, and fisher_per_fact >= 1 are required")
+    if args.record_eval_loss_every < 0:
+        parser.error("--record-eval-loss-every must be nonnegative")
     return args
 
 
