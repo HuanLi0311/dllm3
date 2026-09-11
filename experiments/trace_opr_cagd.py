@@ -323,6 +323,10 @@ def stage_inference(args) -> None:
 def train_sft(args) -> None:
     if args.output.exists():
         raise FileExistsError(f"refusing to reuse {args.output}")
+    if args.command == "train-sequential" and args.support is not None:
+        raise ValueError("Sequential training does not accept replay support")
+    if args.stage > 0 and args.command in ("train-replay", "train-opr") and args.support is None:
+        raise ValueError(f"{args.command} requires --support after Stage 0")
     started = time.time()
     # ponytail: serialize cold imports on the shared environment; remove when each node has a local env copy.
     with Path("/tmp/trace_opr_cagd_python_import.lock").open("a") as import_lock:
@@ -775,7 +779,8 @@ def train_sdft(args) -> None:
         def __init__(self):
             super().__init__()
             self.student = student
-            self.teacher = teacher
+            # The frozen teacher is already resident on this rank and must not enter DeepSpeed's optimizer/state dict.
+            object.__setattr__(self, "teacher", teacher)
 
         def train(self, mode=True):
             super().train(mode)
