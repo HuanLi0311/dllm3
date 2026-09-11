@@ -217,7 +217,7 @@ def summarize_cells(
 def self_check() -> None:
     forbidden = (
         'ROOT / "experiments', "from experiments", "import experiments",
-        "from continual_", "import continual_", "from dllm_", "import dllm_",
+        "from continual_", "import continual_", "from dllm_", "import dllm_", "OnPolicyReplay",
     )
     offenders = []
     for path in Path(__file__).parent.iterdir():

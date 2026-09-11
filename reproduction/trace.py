@@ -19,7 +19,6 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 DATA = ROOT / "data/trace_opr"
 RUNS = ROOT / "runs/trace_opr_cagd"
-THIRD_PARTY = ROOT / "third_party/OnPolicyReplay"
 MODEL = Path(
     "/home/JJ_Group/lih2511/.cache/huggingface/hub/"
     "models--Qwen--Qwen3-4B-Instruct-2507/snapshots/"
@@ -134,42 +133,60 @@ def encode_training_example(tokenizer, prompt: str, answer: str) -> dict | None:
     return {"input_ids": full_ids, "labels": [-100] * len(prompt_ids) + full_ids[len(prompt_ids) :]}
 
 
-def official_tools():
-    tools_dir = str(THIRD_PARTY / "tools")
-    if tools_dir not in sys.path:
-        sys.path.insert(0, tools_dir)
-    import eval as opr_eval  # type: ignore
-    import generate_opr_ru as opr_ru  # type: ignore
+def _code_text(text: str) -> str:
+    text = text.replace("<NUM_LIT>", "0").replace("<STR_LIT>", "").replace("<CHAR_LIT>", "")
+    for kind, value in re.findall(r"<(STR|NUM|CHAR)_LIT:(.*?)>", text, re.S):
+        text = text.replace(f"<{kind}_LIT:{value}>", value)
+    return text
 
-    return opr_eval, opr_ru
+
+def _math_answer(text: str) -> str | None:
+    values = re.findall(r"(\-?[0-9\.\,]+)", text)
+    return next((value for value in reversed(values) if value not in ("", ".")), None)
+
+
+def _sari(gold: list[str], responses: list[str], prompts: list[str]) -> float:
+    from evaluate import load
+
+    sources = [prompt.split("Paragraph:\n", 1)[1].split("\n\nSimplification:", 1)[0] for prompt in prompts]
+    return float(load("sari").compute(
+        sources=sources, predictions=responses, references=[[answer] for answer in gold]
+    )["sari"])
 
 
 def score_rows(task_id: int, gold: list[str], responses: list[str], prompts: list[str]) -> float:
-    opr_eval, _ = official_tools()
     task = TASKS[task_id]
     if task in ("C-STANCE", "FOMC", "ScienceQA"):
-        return opr_eval.eval_acc(gold, responses)
+        return 100 * sum(bool(response) and answer[:1] == response[:1] for answer, response in zip(gold, responses)) / len(gold)
     if task == "MeetingBank":
-        return opr_eval.eval_rougel(gold, responses)
+        from rouge_score import rouge_scorer
+
+        scorer = rouge_scorer.RougeScorer(["rougeL"])
+        return 100 * sum(scorer.score(answer, response)["rougeL"].fmeasure for answer, response in zip(gold, responses)) / len(gold)
     if task == "Py150":
-        return opr_eval.eval_code(gold, responses)
+        from fuzzywuzzy import fuzz
+
+        return sum(fuzz.ratio(_code_text(response), _code_text(answer)) for answer, response in zip(gold, responses)) / len(gold)
     if task in ("NumGLUE-cm", "NumGLUE-ds"):
-        return opr_eval.eval_math(gold, responses)
-    return opr_eval.eval_sari(gold, responses, prompts)
+        return 100 * sum(_math_answer(response) == answer for answer, response in zip(gold, responses)) / len(gold)
+    return _sari(gold, responses, prompts)
 
 
 def score_one(task_id: int, gold: str, response: str, prompt: str) -> float:
-    _, opr_ru = official_tools()
     task = TASKS[task_id]
     if task in ("C-STANCE", "FOMC", "ScienceQA"):
-        return opr_ru.score_acc(gold, response)
+        return 100.0 if response and gold[:1] == response[:1] else 0.0
     if task == "MeetingBank":
-        return opr_ru.score_rougel(gold, response)
+        from rouge_score import rouge_scorer
+
+        return 100 * rouge_scorer.RougeScorer(["rougeL"]).score(gold, response)["rougeL"].fmeasure
     if task == "Py150":
-        return opr_ru.score_code(gold, response)
+        from fuzzywuzzy import fuzz
+
+        return float(fuzz.ratio(_code_text(response), _code_text(gold)))
     if task in ("NumGLUE-cm", "NumGLUE-ds"):
-        return opr_ru.score_math(gold, response)
-    return opr_ru.score_sari_batch([gold], [response], [prompt])[0]
+        return 100.0 if _math_answer(response) == gold else 0.0
+    return _sari([gold], [response], [prompt])
 
 
 def generation_length(task_id: int) -> int:
@@ -1042,6 +1059,9 @@ def self_check() -> None:
     assert generation_length(TASKS.index("ScienceQA")) == 512
     assert sdft_loss_tokens_to_skip(TASKS.index("C-STANCE")) == 0
     assert sdft_loss_tokens_to_skip(TASKS.index("MeetingBank")) == 3
+    assert _code_text("<NUM_LIT> <STR_LIT:x>") == "0 x"
+    assert _math_answer("work 1.0, then -2.5") == "-2.5"
+    assert score_rows(TASKS.index("C-STANCE"), ["A", "B"], ["Answer", ""], ["", ""]) == 50.0
     teacher_prompt = sdft_teacher_prompt("question", "answer")
     assert teacher_prompt.startswith("\nquestion\n\nThis is an example")
     assert "\nanswer\n\n" in teacher_prompt
