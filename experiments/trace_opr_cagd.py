@@ -726,6 +726,8 @@ def train_sdft(args) -> None:
     max_new_tokens = generation_length(args.stage)
     max_prompt_tokens = MAX_LENGTH - max_new_tokens
     rows = load_eligible(tokenizer, args.stage, "train")
+    if args.smoke:
+        rows = rows[:128]
     encoded = []
     for row in rows:
         student_ids = apply_template(tokenizer, row["prompt"])[-max_prompt_tokens:]
@@ -884,7 +886,8 @@ def train_sdft(args) -> None:
     }
     training_args = TrainingArguments(
         output_dir=str(args.output / "trainer"),
-        num_train_epochs=EPOCHS[args.stage],
+        num_train_epochs=1 if args.smoke else EPOCHS[args.stage],
+        max_steps=1 if args.smoke else -1,
         per_device_train_batch_size=SDFT_MICRO_BATCH,
         gradient_accumulation_steps=SDFT_GRADIENT_ACCUMULATION,
         learning_rate=1e-5,
@@ -920,9 +923,10 @@ def train_sdft(args) -> None:
     if trainer.accelerator.is_main_process:
         output_model = args.output / "model"
         unwrapped = trainer.accelerator.unwrap_model(trainer.model_wrapped)
-        unwrapped.student.config.use_cache = True
-        unwrapped.student.save_pretrained(output_model, safe_serialization=True, max_shard_size="4GB")
-        tokenizer.save_pretrained(output_model)
+        if not args.smoke:
+            unwrapped.student.config.use_cache = True
+            unwrapped.student.save_pretrained(output_model, safe_serialization=True, max_shard_size="4GB")
+            tokenizer.save_pretrained(output_model)
         write_json(
             args.output / "stage_result.json",
             {
@@ -930,7 +934,8 @@ def train_sdft(args) -> None:
                 "stage": args.stage,
                 "task": TASKS[args.stage],
                 "task_order": list(TASKS),
-                "checkpoint": str(output_model),
+                "checkpoint": None if args.smoke else str(output_model),
+                "smoke": args.smoke,
                 "elapsed_seconds": time.time() - started,
                 "peak_gpu_bytes": int(peak.item()),
                 "eligible_training_examples": len(encoded),
@@ -1035,6 +1040,7 @@ def parser() -> argparse.ArgumentParser:
     sdft.add_argument("--checkpoint", type=Path, required=True)
     sdft.add_argument("--stage", type=int, choices=range(8), required=True)
     sdft.add_argument("--seed", type=int, default=3407)
+    sdft.add_argument("--smoke", action="store_true")
     sdft.add_argument("--output", type=Path, required=True)
 
     summary = sub.add_parser("summarize")
