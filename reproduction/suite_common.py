@@ -158,9 +158,11 @@ def _run_cell(cell: Cell, gpu: str, resume: bool) -> str:
         ))
         if not retryable or attempt == 10:
             raise RuntimeError(f"{cell.name} failed with exit code {completed.returncode}; see {log}")
-        archived = log.with_name(f"{log.stem}.failed_attempt{attempt}.log")
-        if archived.exists():
-            raise FileExistsError(f"refusing existing retry log: {archived}")
+        archive_index = attempt
+        archived = log.with_name(f"{log.stem}.failed_attempt{archive_index}.log")
+        while archived.exists():
+            archive_index += 1
+            archived = log.with_name(f"{log.stem}.failed_attempt{archive_index}.log")
         log.rename(archived)
     if not valid_result(cell.output):
         raise RuntimeError(f"{cell.name} did not produce a valid result: {cell.output}")
@@ -354,6 +356,7 @@ def self_check() -> None:
     with tempfile.TemporaryDirectory() as directory:
         temporary = Path(directory)
         marker, output = temporary / "marker", temporary / "result.json"
+        (temporary / "result.failed_attempt1.log").write_text("preserved\n")
         code = (
             "import json,sys; from pathlib import Path; "
             f"marker=Path({str(marker)!r}); output=Path({str(output)!r}); "
@@ -363,7 +366,8 @@ def self_check() -> None:
             "sys.exit(1 if first else 0)"
         )
         assert _run_cell(Cell("retry", (sys.executable, "-c", code), output), "", False) == "done retry"
-        assert (temporary / "result.failed_attempt1.log").is_file()
+        assert (temporary / "result.failed_attempt1.log").read_text() == "preserved\n"
+        assert (temporary / "result.failed_attempt2.log").is_file()
     print(json.dumps({"self_check": "ok", "independent_files": len(list(Path(__file__).parent.glob("*")))}))
 
 
