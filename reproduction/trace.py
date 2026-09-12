@@ -222,13 +222,21 @@ def make_llm(checkpoint: Path, seed: int):
     )
 
 
-def chat(llm, messages: list[list[dict]], temperature: float, max_tokens: int | list[int], n: int = 1):
+def chat(
+    llm,
+    messages: list[list[dict]],
+    temperature: float,
+    max_tokens: int | list[int],
+    n: int = 1,
+    logprobs: int | None = None,
+):
     from vllm import SamplingParams
 
+    common = {"temperature": temperature, "n": n, "logprobs": logprobs}
     params = (
-        [SamplingParams(temperature=temperature, max_tokens=length, n=n) for length in max_tokens]
+        [SamplingParams(max_tokens=length, **common) for length in max_tokens]
         if isinstance(max_tokens, list)
-        else SamplingParams(temperature=temperature, max_tokens=max_tokens, n=n)
+        else SamplingParams(max_tokens=max_tokens, **common)
     )
     return llm.chat(messages, params, chat_template_kwargs={"enable_thinking": False})
 
@@ -277,6 +285,37 @@ def make_opr_buffer(llm, tokenizer, stage: int) -> list[dict]:
                 }
             )
         candidates.sort(key=lambda row: (-row["score"], row["source_index"]))
+        selected.extend(candidates[:keep])
+    assert len(selected) == BUFFER_SIZE
+    return selected
+
+
+def mean_token_logprob(logprobs: list[dict]) -> float:
+    values = [float(candidate.logprob) for token in logprobs for candidate in token.values()]
+    if not values:
+        raise ValueError("OPR-SC generation returned no token log-probabilities")
+    return sum(values) / len(values)
+
+
+def make_opr_sc_buffer(llm, tokenizer, stage: int) -> list[dict]:
+    selected = []
+    for task_id, keep in enumerate(allocations(BUFFER_SIZE, stage)):
+        rows = load_eligible(tokenizer, task_id, "train")
+        messages = [[{"role": "user", "content": row["prompt"]}] for row in rows]
+        outputs = chat(llm, messages, 0.1, generation_length(task_id), logprobs=1)
+        candidates = []
+        for index, (row, output) in enumerate(zip(rows, outputs)):
+            completion = output.outputs[0]
+            candidates.append(
+                {
+                    "prompt": row["prompt"],
+                    "answer": completion.text,
+                    "logprob": mean_token_logprob(completion.logprobs),
+                    "source_task": TASKS[task_id],
+                    "source_index": index,
+                }
+            )
+        candidates.sort(key=lambda row: (-row["logprob"], row["source_index"]))
         selected.extend(candidates[:keep])
     assert len(selected) == BUFFER_SIZE
     return selected
@@ -359,9 +398,12 @@ def stage_inference(args) -> None:
             rows = make_replay_buffer(tokenizer, next_stage, args.seed)
         elif args.method == "opr":
             if llm is None:
-                official_tools()
                 llm = make_llm(args.checkpoint, args.seed)
             rows = make_opr_buffer(llm, tokenizer, next_stage)
+        elif args.method == "opr_sc":
+            if llm is None:
+                llm = make_llm(args.checkpoint, args.seed)
+            rows = make_opr_sc_buffer(llm, tokenizer, next_stage)
         elif args.method == "cagd":
             if llm is None:
                 llm = make_llm(args.checkpoint, args.seed)
@@ -376,7 +418,7 @@ def train_sft(args) -> None:
         raise FileExistsError(f"refusing to reuse {args.output}")
     if args.command == "train-sequential" and args.support is not None:
         raise ValueError("Sequential training does not accept replay support")
-    if args.stage > 0 and args.command in ("train-replay", "train-opr") and args.support is None:
+    if args.stage > 0 and args.command in ("train-replay", "train-opr", "train-opr-sc") and args.support is None:
         raise ValueError(f"{args.command} requires --support after Stage 0")
     started = time.time()
     # Serialize cold imports because the current environment is shared across workers.
@@ -494,6 +536,7 @@ def train_sft(args) -> None:
                     "train-sequential": "sequential",
                     "train-replay": "vanilla-replay",
                     "train-opr": "opr-ru",
+                    "train-opr-sc": "opr-sc",
                 }[args.command],
                 "stage": args.stage,
                 "task": TASKS[args.stage],
@@ -1096,6 +1139,8 @@ def self_check() -> None:
     assert sdft_loss_tokens_to_skip(TASKS.index("MeetingBank")) == 3
     assert _code_text("<NUM_LIT> <STR_LIT:x>") == "0 x"
     assert _math_answer("work 1.0, then -2.5") == "-2.5"
+    logprob = type("Logprob", (), {"logprob": -1.5})()
+    assert mean_token_logprob([{1: logprob}, {2: logprob}]) == -1.5
     assert score_rows(TASKS.index("C-STANCE"), ["A", "B"], ["Answer", ""], ["", ""]) == 50.0
     teacher_prompt = sdft_teacher_prompt("question", "answer")
     assert teacher_prompt.startswith("\nquestion\n\nThis is an example")
@@ -1129,14 +1174,16 @@ def parser() -> argparse.ArgumentParser:
     inventory.add_argument("--output", type=Path, required=True)
 
     inference = sub.add_parser("stage-inference")
-    inference.add_argument("--method", choices=("sequential", "replay", "sdft", "opr", "cagd"), required=True)
+    inference.add_argument(
+        "--method", choices=("sequential", "replay", "sdft", "opr", "opr_sc", "cagd"), required=True
+    )
     inference.add_argument("--checkpoint", type=Path, required=True)
     inference.add_argument("--stage", type=int, choices=range(8), required=True)
     inference.add_argument("--seed", type=int, default=3407)
     inference.add_argument("--evaluation", type=Path)
     inference.add_argument("--next-support", type=Path)
 
-    for command in ("train-sequential", "train-replay", "train-opr"):
+    for command in ("train-sequential", "train-replay", "train-opr", "train-opr-sc"):
         sft = sub.add_parser(command)
         sft.add_argument("--checkpoint", type=Path, required=True)
         sft.add_argument("--stage", type=int, choices=range(8), required=True)
@@ -1164,11 +1211,13 @@ def parser() -> argparse.ArgumentParser:
 
     summary = sub.add_parser("summarize")
     summary.add_argument("--run", type=Path, required=True)
-    summary.add_argument("--method", choices=("sequential", "replay", "sdft", "opr", "cagd"), required=True)
+    summary.add_argument(
+        "--method", choices=("sequential", "replay", "sdft", "opr", "opr_sc", "cagd"), required=True
+    )
     comparison = sub.add_parser("summarize-comparison")
     comparison.add_argument("--run", type=Path, required=True)
     comparison.add_argument(
-        "--methods", nargs="+", choices=("sequential", "replay", "sdft", "opr", "cagd"), required=True
+        "--methods", nargs="+", choices=("sequential", "replay", "sdft", "opr", "opr_sc", "cagd"), required=True
     )
     suite = sub.add_parser("summarize-suite")
     suite.add_argument("--run-root", type=Path, required=True)
@@ -1186,7 +1235,7 @@ def main() -> None:
         write_json(args.output, model_inventory(args.model))
     elif args.command == "stage-inference":
         stage_inference(args)
-    elif args.command in ("train-sequential", "train-replay", "train-opr"):
+    elif args.command in ("train-sequential", "train-replay", "train-opr", "train-opr-sc"):
         train_sft(args)
     elif args.command == "train-cagd":
         train_cagd(args)
