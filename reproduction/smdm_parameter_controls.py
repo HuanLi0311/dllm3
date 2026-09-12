@@ -443,7 +443,8 @@ def run(args) -> dict:
     return result
 
 
-def _self_check() -> None:
+def _self_check(args: argparse.Namespace) -> None:
+    assert args.record_step_loss is False and args.record_eval_loss_every == 0
     direction = torch.tensor([3.0, 4.0], dtype=torch.float32)
     direct_norm_sq = float(direction.double().square().sum())
     chunked_norm_sq = _direction_norm_sq(direction, chunk_size=1)
@@ -527,6 +528,8 @@ def parse_args() -> argparse.Namespace:
     args.reverse_cfg = 0.8
     args.reverse_temperature = 0.0
     args.show_predictions = False
+    args.record_step_loss = False
+    args.record_eval_loss_every = 0
     args.final_protocol = False
     args.fresh_protocol = False
     return args
@@ -535,7 +538,7 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
     if args.self_check:
-        _self_check()
+        _self_check(args)
     else:
         run(args)
 
