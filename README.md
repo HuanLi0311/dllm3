@@ -36,7 +36,7 @@ table_cagd_fresh figure_loss_dynamics figure_anchor_budget
 table_cagd_natural figure_qwen_cagd table_gsm8k_behavior
 tables_qualitative table_parameter_controls
 ```
-
+<!-- 
 Full-parameter SMDM and Qwen-0.6B/1.7B reproduction:
 
 ```bash
@@ -54,7 +54,7 @@ Print the complete non-TRACE command matrix without training:
 
 ```bash
 RUN_ID=check bash reproduction/run_all_paper_experiments.sh --dry-run
-```
+``` -->
 
 ## TRACE large experiment: training and evaluation
 
