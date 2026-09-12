@@ -14,10 +14,10 @@ model=${TRACE_MODEL:-/home/JJ_Group/lih2511/.cache/huggingface/hub/models--Qwen-
 run_base=${TRACE_RUN_ROOT:-$root/runs/reproduction/trace}
 trainable=${TRAINABLE_SCOPE:-all}
 case "$trainable" in all|last_block) ;; *) echo "TRAINABLE_SCOPE must be all or last_block" >&2; exit 2 ;; esac
-read -r -a methods <<< "${TRACE_METHODS:-sequential replay sdft opr cagd}"
+read -r -a methods <<< "${TRACE_METHODS:-sequential replay sdft opr opr_sc cagd}"
 for method in "${methods[@]}"; do
     case "$method" in
-        sequential|replay|sdft|opr|cagd) ;;
+        sequential|replay|sdft|opr|opr_sc|cagd) ;;
         *) echo "unknown TRACE method: $method" >&2; exit 2 ;;
     esac
 done
@@ -85,7 +85,9 @@ train_stage() {
         echo "incomplete output requires inspection: $output" >&2
         exit 1
     fi
-    local args=("train-$method" --checkpoint "$source" --stage "$stage" --seed "$seed" --trainable "$trainable" --output "$output")
+    local command="train-$method"
+    [[ "$method" != opr_sc ]] || command=train-opr-sc
+    local args=("$command" --checkpoint "$source" --stage "$stage" --seed "$seed" --trainable "$trainable" --output "$output")
     [[ -z "$support" ]] || args+=(--support "$support")
     "$torchrun" --standalone --nproc_per_node="$nproc" "$runner" "${runner_args[@]}" "${args[@]}"
 }
@@ -108,6 +110,7 @@ if [[ " ${methods[*]} " != " sdft " ]]; then
     stage_inference sequential 0 "$shared_checkpoint" "$shared/evaluation.json"
     selected replay && stage_inference replay 0 "$shared_checkpoint" "" "$shared/support_replay_stage1.jsonl"
     selected opr && stage_inference opr 0 "$shared_checkpoint" "" "$shared/support_opr_stage1.jsonl"
+    selected opr_sc && stage_inference opr_sc 0 "$shared_checkpoint" "" "$shared/support_opr_sc_stage1.jsonl"
     selected cagd && stage_inference cagd 0 "$shared_checkpoint" "" "$shared/support_cagd_stage1.jsonl"
 fi
 
@@ -115,7 +118,7 @@ run_shared_sft_method() {
     local method=$1 source support= next_support= stage output
     source=$(checkpoint "$shared")
     case "$method" in
-        replay|opr|cagd) support=$shared/support_${method}_stage1.jsonl ;;
+        replay|opr|opr_sc|cagd) support=$shared/support_${method}_stage1.jsonl ;;
     esac
     for stage in 1 2 3 4 5 6 7; do
         output=$run/$method/stage$stage
@@ -124,7 +127,7 @@ run_shared_sft_method() {
         next_support=
         if [[ "$stage" -lt 7 ]]; then
             case "$method" in
-                replay|opr|cagd) next_support=$output/support_${method}_stage$((stage + 1)).jsonl ;;
+                replay|opr|opr_sc|cagd) next_support=$output/support_${method}_stage$((stage + 1)).jsonl ;;
             esac
         fi
         stage_inference "$method" "$stage" "$source" "$output/evaluation.json" "$next_support"

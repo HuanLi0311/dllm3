@@ -59,13 +59,13 @@ RUN_ID=check bash reproduction/run_all_paper_experiments.sh --dry-run
 ## TRACE large experiment: training and evaluation
 
 The launcher executes all eight stages and their evaluations for Sequential,
-Replay, SDFT, OPR, and CAGD, then emits one comparison `summary.json` per seed and
-order.
+Vanilla Replay (`replay`), SDFT, OPR-RU (`opr`), OPR-SC (`opr_sc`), and CAGD,
+then emits one comparison `summary.json` per seed and order.
 
 ```bash
 nohup env TRACE_SEEDS="3407 3408 3409" TRACE_ORDERS="canonical reverse" \
   TRACE_GPUS="0,1,2,3,4,5,6,7" TRAINABLE_SCOPE=all \
-  TRACE_METHODS="sequential replay sdft opr cagd" \
+  TRACE_METHODS="sequential replay sdft opr opr_sc cagd" \
   TRACE_RUN_ROOT=runs/reproduction/trace_full \
   bash reproduction/run_trace_experiment.sh \
   > runs/reproduction/trace_full.log 2>&1 &
