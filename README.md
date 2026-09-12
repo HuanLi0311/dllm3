@@ -1,18 +1,6 @@
 # Experiment reproduction
 
-## Environment
-
-- CUDA GPUs and the two existing environments: `smdm-baseline` for SMDM and
-  `opr` for Qwen/TRACE. Override them with `SMDM_PYTHON` and `AR_PYTHON`.
-- SMDM stack: Python 3.9, PyTorch 2.4.1, Transformers 4.31.0,
-  tokenizers 0.13.3, Lightning 2.1.2, xFormers 0.0.28.post1.
-- Qwen/TRACE stack: Python 3.10, PyTorch 2.8.0+cu128, Transformers 4.57.6,
-  TRL 0.24.0, vLLM 0.11.0, DeepSpeed 0.18.2, and Liger Kernel.
-- Cached SMDM-219M/SMDM-1.14B and Qwen3-0.6B/1.7B/4B checkpoints at the
-  paths declared in `reproduction/suite_common.py`.
-- Run commands from `/home/JJ_Group/lih2511/test/dllm/iclr_3`.
-
-
+# Download Qwen3-4B
 ## TRACE large experiment: training and evaluation
 
 The launcher executes all eight stages and their evaluations for Sequential,
