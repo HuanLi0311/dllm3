@@ -141,7 +141,8 @@ def _run_cell(cell: Cell, gpu: str, resume: bool) -> str:
         raise FileExistsError(f"refusing existing log: {log}")
     env = os.environ.copy()
     env.update({"CUDA_VISIBLE_DEVICES": gpu, "PYTHONNOUSERSITE": "1", "TOKENIZERS_PARALLELISM": "false"})
-    for attempt in range(1, 4):
+    # ponytail: ten retries cover observed shared-filesystem import jitter; raise immediately otherwise.
+    for attempt in range(1, 11):
         with log.open("x", encoding="utf-8") as handle:
             handle.write("command=" + shlex.join(cell.command) + "\n")
             handle.write(f"physical_gpu={gpu}\n")
@@ -149,7 +150,13 @@ def _run_cell(cell: Cell, gpu: str, resume: bool) -> str:
             completed = subprocess.run(cell.command, cwd=ROOT, env=env, stdout=handle, stderr=subprocess.STDOUT)
         if not completed.returncode:
             break
-        if attempt == 3:
+        failure = log.read_text(encoding="utf-8", errors="replace")
+        retryable = any(marker in failure for marker in (
+            "partially initialized module 'multiprocessing'",
+            "No module named 'email.",
+            "No module named 'unittest.",
+        ))
+        if not retryable or attempt == 10:
             raise RuntimeError(f"{cell.name} failed with exit code {completed.returncode}; see {log}")
         archived = log.with_name(f"{log.stem}.failed_attempt{attempt}.log")
         if archived.exists():
@@ -351,6 +358,7 @@ def self_check() -> None:
             "import json,sys; from pathlib import Path; "
             f"marker=Path({str(marker)!r}); output=Path({str(output)!r}); "
             "first=not marker.exists(); marker.touch(); "
+            "print(\"partially initialized module 'multiprocessing'\", file=sys.stderr) if first else None; "
             "output.write_text(json.dumps({'status':'ok','summary':{}})) if not first else None; "
             "sys.exit(1 if first else 0)"
         )
