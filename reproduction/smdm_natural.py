@@ -285,7 +285,8 @@ def run(args) -> dict:
     return result
 
 
-def _self_check() -> None:
+def _self_check(args) -> None:
+    assert args.record_step_loss is False and args.record_eval_loss_every == 0
     mock = [
         {"name": "a"}, {"name": "b"}, {"name": "c"},
     ]
@@ -339,6 +340,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--distill-weight", type=float, default=1.0)
     parser.add_argument("--distill-temperature", type=float, default=1.0)
     parser.add_argument("--ewc-lambda", type=float, default=0.0)
+    parser.add_argument("--record-step-loss", action="store_true")
+    parser.add_argument("--record-eval-loss-every", type=int, default=0)
     parser.add_argument("--device", default="cuda")
     parser.add_argument("--formal", action="store_true")
     parser.add_argument("--self-check", action="store_true")
@@ -351,7 +354,7 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
     if args.self_check:
-        _self_check()
+        _self_check(args)
     else:
         run(args)
 
