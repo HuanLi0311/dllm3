@@ -11,6 +11,7 @@ import shlex
 import statistics
 import subprocess
 import sys
+import tempfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -140,13 +141,20 @@ def _run_cell(cell: Cell, gpu: str, resume: bool) -> str:
         raise FileExistsError(f"refusing existing log: {log}")
     env = os.environ.copy()
     env.update({"CUDA_VISIBLE_DEVICES": gpu, "PYTHONNOUSERSITE": "1", "TOKENIZERS_PARALLELISM": "false"})
-    with log.open("x", encoding="utf-8") as handle:
-        handle.write("command=" + shlex.join(cell.command) + "\n")
-        handle.write(f"physical_gpu={gpu}\n")
-        handle.flush()
-        completed = subprocess.run(cell.command, cwd=ROOT, env=env, stdout=handle, stderr=subprocess.STDOUT)
-    if completed.returncode:
-        raise RuntimeError(f"{cell.name} failed with exit code {completed.returncode}; see {log}")
+    for attempt in range(1, 4):
+        with log.open("x", encoding="utf-8") as handle:
+            handle.write("command=" + shlex.join(cell.command) + "\n")
+            handle.write(f"physical_gpu={gpu}\n")
+            handle.flush()
+            completed = subprocess.run(cell.command, cwd=ROOT, env=env, stdout=handle, stderr=subprocess.STDOUT)
+        if not completed.returncode:
+            break
+        if attempt == 3:
+            raise RuntimeError(f"{cell.name} failed with exit code {completed.returncode}; see {log}")
+        archived = log.with_name(f"{log.stem}.failed_attempt{attempt}.log")
+        if archived.exists():
+            raise FileExistsError(f"refusing existing retry log: {archived}")
+        log.rename(archived)
     if not valid_result(cell.output):
         raise RuntimeError(f"{cell.name} did not produce a valid result: {cell.output}")
     return f"done {cell.name}"
@@ -336,6 +344,18 @@ def self_check() -> None:
         )
         if completed.returncode:
             raise RuntimeError(f"environment check failed for {executable}: {completed.stderr.strip()}")
+    with tempfile.TemporaryDirectory() as directory:
+        temporary = Path(directory)
+        marker, output = temporary / "marker", temporary / "result.json"
+        code = (
+            "import json,sys; from pathlib import Path; "
+            f"marker=Path({str(marker)!r}); output=Path({str(output)!r}); "
+            "first=not marker.exists(); marker.touch(); "
+            "output.write_text(json.dumps({'status':'ok','summary':{}})) if not first else None; "
+            "sys.exit(1 if first else 0)"
+        )
+        assert _run_cell(Cell("retry", (sys.executable, "-c", code), output), "", False) == "done retry"
+        assert (temporary / "result.failed_attempt1.log").is_file()
     print(json.dumps({"self_check": "ok", "independent_files": len(list(Path(__file__).parent.glob("*")))}))
 
 
