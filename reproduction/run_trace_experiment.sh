@@ -24,33 +24,23 @@ done
 
 if (( $# == 0 )); then
     read -r -a trace_seeds <<< "${TRACE_SEEDS:-3407}"
-    read -r -a trace_orders <<< "${TRACE_ORDERS:-canonical}"
-    for trace_order in "${trace_orders[@]}"; do
-        for trace_seed in "${trace_seeds[@]}"; do
-            "$0" "$trace_seed" "$trace_order"
-        done
+    for trace_seed in "${trace_seeds[@]}"; do
+        "$0" "$trace_seed"
     done
     if [[ "${TRACE_DRY_RUN:-0}" != 1 ]]; then
         "$python" "$runner" summarize-suite --run-root "$run_base" \
-            --seeds "${trace_seeds[@]}" --orders "${trace_orders[@]}"
+            --seeds "${trace_seeds[@]}" --orders canonical
     fi
     exit 0
 fi
 
 seed=${1:-3407}
-order=${2:-canonical}
-case "$order" in
-    canonical) order_suffix= ;;
-    reverse) order_suffix=_reverse ;;
-    *) echo "task order must be canonical or reverse" >&2; exit 2 ;;
-esac
-
-run=$run_base/seed${seed}${order_suffix}
-runner_args=(--task-order "$order")
+run=$run_base/seed${seed}
+runner_args=(--task-order canonical)
 
 if [[ "${TRACE_DRY_RUN:-0}" == 1 ]]; then
-    printf 'seed=%s order=%s methods=%s trainable=%s gpus=%s output=%s\n' \
-        "$seed" "$order" "${methods[*]}" "$trainable" "${TRACE_GPUS:-0,1,2,3,4,5,6,7}" "$run"
+    printf 'seed=%s order=canonical methods=%s trainable=%s gpus=%s output=%s\n' \
+        "$seed" "${methods[*]}" "$trainable" "${TRACE_GPUS:-0,1,2,3,4,5,6,7}" "$run"
     exit 0
 fi
 
