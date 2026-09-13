@@ -1,7 +1,18 @@
-# Exact environment used for the exploratory Qwen3 extension.
+# Tested Qwen / TRACE runtime: Python 3.10.21, CUDA 12.8.
+# SMDM uses the separate environment specified in requirements.txt.
 --extra-index-url https://download.pytorch.org/whl/cu128
 
-torch==2.7.0
-numpy==1.26.0
+torch==2.8.0
+numpy==2.2.6
 safetensors==0.8.0
 transformers==4.57.6
+datasets==3.6.0
+accelerate==1.15.0
+deepspeed==0.18.2
+vllm==0.11.0
+liger-kernel==0.8.2
+evaluate==0.4.6
+rouge-score==0.1.2
+fuzzywuzzy==0.18.0
+python-Levenshtein==0.27.4
+matplotlib==3.10.9
