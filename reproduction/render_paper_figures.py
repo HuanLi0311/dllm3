@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Render the paper-specific CAGD figures with tight vector bounds."""
+"""Render CAGD overview and archived-summary figures with tight vector bounds."""
 
 from __future__ import annotations
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build the fixed, prompt-disjoint Dolly stream used by the natural-task study."""
+"""Prepare the fixed, prompt-disjoint Dolly stream used by the natural-task study."""
 
 from __future__ import annotations
 
