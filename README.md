@@ -102,3 +102,5 @@ checkout are recoverable from
 Extract that archive into a separate empty directory, not over this checkout.
 Current runners depend only on `reproduction/` and the retained SMDM backbone,
 not on the archived code or an OPR checkout.
+The exact removal inventory and verification results are recorded in
+[`release_evidence/cleanup_20260914.md`](release_evidence/cleanup_20260914.md).
