@@ -211,13 +211,16 @@ def load_eligible(tokenizer, task_id: int, split: str) -> list[dict]:
 def make_llm(checkpoint: Path, seed: int):
     from vllm import LLM
 
+    memory_fraction = float(os.environ.get("TRACE_VLLM_GPU_MEMORY_UTILIZATION", "0.92"))
+    if not 0.0 < memory_fraction <= 1.0:
+        raise ValueError("TRACE_VLLM_GPU_MEMORY_UTILIZATION must be in (0, 1]")
     return LLM(
         model=str(checkpoint),
         tensor_parallel_size=8,
         dtype="bfloat16",
         seed=seed,
         max_model_len=2560,
-        gpu_memory_utilization=0.92,
+        gpu_memory_utilization=memory_fraction,
         trust_remote_code=True,
     )
 
@@ -1126,6 +1129,7 @@ def summarize_suite(args) -> None:
 
 def self_check() -> None:
     preload_scorers()
+    assert 0.0 < float(os.environ.get("TRACE_VLLM_GPU_MEMORY_UTILIZATION", "0.92")) <= 1.0
     assert allocations(50, 3) == [17, 17, 16]
     assert allocations(50, 7) == [8, 7, 7, 7, 7, 7, 7]
     assert dict(zip(TASKS, EPOCHS)) == dict(zip(CANONICAL_TASKS, CANONICAL_EPOCHS))
