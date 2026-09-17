@@ -57,24 +57,28 @@ An individual figure/table can be launched with, for example:
 
 ## TRACE large experiment: training and evaluation
 
-The launcher runs all eight stages in canonical forward order for Sequential,
-Vanilla Replay (`replay`), SDFT (`sdft`), OPR-RU (`opr`), OPR-SC (`opr_sc`), and
-CAGD. It exports eight final scores, eight scores when learned, ACC, and BWT
-in each method's `summary.json`, plus a comparison `summary.json` per seed
-and an aggregate `summary.json` at the run root. Seeds run sequentially;
-the selected GPUs jointly run each distributed training stage.
+The large experiment is split into SDFT and the other five methods. Both
+launchers run seeds 3407, 3408, and 3409 sequentially over the eight canonical
+stages. The selected GPUs jointly run each distributed training stage.
 
 ```bash
-nohup env TRACE_SEEDS="3407 3408 3409" \
-  TRACE_GPUS="0,1,2,3,4,5,6,7" TRAINABLE_SCOPE=all \
-  TRACE_METHODS="sequential replay sdft opr opr_sc cagd" \
-  TRACE_RUN_ROOT=runs/reproduction/trace_full \
-  bash reproduction/run_trace_experiment.sh \
-  > runs/reproduction/trace_full.log 2>&1 &
+nohup env TRACE_GPUS="0,1,2,3,4,5,6,7" TRAINABLE_SCOPE=all \
+  bash reproduction/run_trace_sdft.sh \
+  > runs/reproduction/trace_sdft.log 2>&1 &
+
+nohup env TRACE_GPUS="0,1,2,3,4,5,6,7" TRAINABLE_SCOPE=all \
+  bash reproduction/run_trace_without_sdft.sh \
+  > runs/reproduction/trace_without_sdft.log 2>&1 &
 ```
 
-Completed stages and evaluations are reused. An incomplete stage directory
-stops the launcher for inspection rather than overwriting it.
+Each method exports eight final scores, eight scores when learned, ACC, and
+BWT. Results and full logs are available immediately after each seed at
+`<run-root>/seed<seed>/summary.json` and
+`<run-root>/seed<seed>/orchestrator.log`; the cross-seed aggregate is written
+to `<run-root>/summary.json` after all three seeds finish. Set `TRACE_SEEDS` or
+`TRACE_RUN_ROOT` to override the defaults. Completed stages and evaluations
+are reused. An incomplete stage directory stops the launcher for inspection
+rather than overwriting it.
 
 ## Checks and retained utilities
 
@@ -85,6 +89,8 @@ These checks do not launch model training:
 "$PAPER_PYTHON" -m reproduction.trace self-check
 bash reproduction/run_all_paper_experiments.sh --dry-run
 TRACE_SEEDS="3407 3408 3409" bash reproduction/run_trace_experiment.sh --dry-run
+bash reproduction/run_trace_sdft.sh --dry-run
+bash reproduction/run_trace_without_sdft.sh --dry-run
 ```
 
 `reproduction/prepare_dolly_stream.py` builds the locked natural-instruction

@@ -25,7 +25,16 @@ done
 if (( $# == 0 )); then
     read -r -a trace_seeds <<< "${TRACE_SEEDS:-3407}"
     for trace_seed in "${trace_seeds[@]}"; do
-        "$0" "$trace_seed"
+        if [[ "${TRACE_DRY_RUN:-0}" == 1 ]]; then
+            "$0" "$trace_seed"
+            continue
+        fi
+        seed_log=$run_base/seed${trace_seed}/orchestrator.log
+        mkdir -p "$(dirname "$seed_log")"
+        printf 'seed=%s started=%s\n' "$trace_seed" "$(date --iso-8601=seconds)" | tee -a "$seed_log"
+        "$0" "$trace_seed" 2>&1 | tee -a "$seed_log"
+        printf 'seed=%s result=%s\n' "$trace_seed" "$run_base/seed${trace_seed}/summary.json" | tee -a "$seed_log"
+        "$python" -m json.tool "$run_base/seed${trace_seed}/summary.json" | tee -a "$seed_log"
     done
     if [[ "${TRACE_DRY_RUN:-0}" != 1 ]]; then
         "$python" "$runner" summarize-suite --run-root "$run_base" \
