@@ -20,14 +20,6 @@ conda create -n cagd-trace python=3.10.21 -y
 conda activate cagd-trace
 python -m pip install -r requirements-qwen.txt
 
-export PYTHONNOUSERSITE=1
-export PAPER_PYTHON="$CONDA_PREFIX/bin/python"
-export AR_PYTHON="$PAPER_PYTHON"
-export PAPER_TORCHRUN="$CONDA_PREFIX/bin/torchrun"
-export TRACE_MODEL=/absolute/path/to/Qwen3-4B-Instruct-2507
-mkdir -p runs/reproduction
-```
-
 ## TRACE large experiment: training and evaluation
 
 The large experiment is split into SDFT and the other five methods. Both
