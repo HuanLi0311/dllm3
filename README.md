@@ -18,25 +18,25 @@ Create a clean environment and point both TRACE launchers to it:
 conda create -n cagd-trace python=3.10.21 -y
 conda activate cagd-trace
 python -m pip install -r requirements-qwen.txt
+```
 
 ## TRACE large experiment: training and evaluation
 
-The large experiment is split into SDFT and the other five methods. Both
-launchers run seeds 3407, 3408, and 3409 sequentially over the eight canonical
-stages. The selected GPUs jointly run each distributed training stage. On one
-eight-GPU host, run these commands one after the other; use separate hosts if
-they are launched simultaneously.
-
+The large experiment is split into SDFT and the other five methods. Each
+launcher runs seeds 3407, 3408, and 3409 concurrently. Every seed uses all
+eight GPUs; each vLLM process is limited to 27% of each GPU's memory. On one
+eight-GPU host, run these two launchers one after the other.
 
 ```bash
-
 nohup env TRACE_SEEDS="3407 3408 3409" \
+  TRACE_PARALLEL_SEEDS=1 TRACE_VLLM_GPU_MEMORY_UTILIZATION=0.27 \
   TRACE_GPUS="0,1,2,3,4,5,6,7" TRAINABLE_SCOPE=all \
   TRACE_RUN_ROOT=runs/reproduction/trace_without_sdft \
   bash reproduction/run_trace_without_sdft.sh \
   > runs/reproduction/trace_without_sdft.log 2>&1 &
-  
+
 nohup env TRACE_SEEDS="3407 3408 3409" \
+  TRACE_PARALLEL_SEEDS=1 TRACE_VLLM_GPU_MEMORY_UTILIZATION=0.27 \
   TRACE_GPUS="0,1,2,3,4,5,6,7" TRAINABLE_SCOPE=all \
   TRACE_RUN_ROOT=runs/reproduction/trace_sdft \
   bash reproduction/run_trace_sdft.sh \
