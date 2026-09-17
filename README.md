@@ -8,8 +8,7 @@ separate.
 ### TRACE environment
 
 The reference environment is the one used for Table 5: Linux, Python 3.10.21,
-PyTorch 2.8.0 with CUDA 12.8, Transformers 4.57.6, vLLM 0.11.0, and eight
-NVIDIA A100 PCIe 40GB GPUs. `requirements-qwen.txt` pins the tested Python
+PyTorch 2.8.0 with CUDA 12.8, Transformers 4.57.6, vLLM 0.11.0. `requirements-qwen.txt` pins the tested Python
 packages. A newer GPU may be used, but it is not the Table 5 reference
 hardware; its NVIDIA driver must support the CUDA 12.8 wheels.
 
