@@ -39,8 +39,9 @@ export TRACE_MODEL=/home/JJ_Group/lih2511/.cache/huggingface/hub/models--Qwen--Q
 mkdir -p runs/reproduction
 ```
 
+`fsspec` is pinned to the upper bound required by `datasets==3.6.0`.
 `evaluate.load("sari")` dynamically imports `sacrebleu` and `sacremoses`;
-both are pinned explicitly rather than relying on unrelated packages to
+both are also pinned explicitly rather than relying on unrelated packages to
 install them transitively.
 
 ### SMDM environment
@@ -103,11 +104,15 @@ eight-GPU host, run these commands one after the other; use separate hosts if
 they are launched simultaneously.
 
 ```bash
-nohup env TRACE_GPUS="0,1,2,3,4,5,6,7" TRAINABLE_SCOPE=all \
+nohup env TRACE_SEEDS="3407 3408 3409" \
+  TRACE_GPUS="0,1,2,3,4,5,6,7" TRAINABLE_SCOPE=all \
+  TRACE_RUN_ROOT=runs/reproduction/trace_sdft \
   bash reproduction/run_trace_sdft.sh \
   > runs/reproduction/trace_sdft.log 2>&1 &
 
-nohup env TRACE_GPUS="0,1,2,3,4,5,6,7" TRAINABLE_SCOPE=all \
+nohup env TRACE_SEEDS="3407 3408 3409" \
+  TRACE_GPUS="0,1,2,3,4,5,6,7" TRAINABLE_SCOPE=all \
+  TRACE_RUN_ROOT=runs/reproduction/trace_without_sdft \
   bash reproduction/run_trace_without_sdft.sh \
   > runs/reproduction/trace_without_sdft.log 2>&1 &
 ```
