@@ -17,7 +17,7 @@ parallel_seeds=${TRACE_PARALLEL_SEEDS:-0}
 case "$trainable" in all|last_block) ;; *) echo "TRAINABLE_SCOPE must be all or last_block" >&2; exit 2 ;; esac
 case "$parallel_seeds" in 0|1) ;; *) echo "TRACE_PARALLEL_SEEDS must be 0 or 1" >&2; exit 2 ;; esac
 if [[ "$parallel_seeds" == 1 ]]; then
-    export TRACE_VLLM_GPU_MEMORY_UTILIZATION=${TRACE_VLLM_GPU_MEMORY_UTILIZATION:-0.32}
+    export TRACE_VLLM_GPU_MEMORY_UTILIZATION=${TRACE_VLLM_GPU_MEMORY_UTILIZATION:-0.27}
 fi
 read -r -a methods <<< "${TRACE_METHODS:-sequential replay sdft opr opr_sc cagd}"
 for method in "${methods[@]}"; do
