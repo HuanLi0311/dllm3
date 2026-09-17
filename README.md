@@ -27,18 +27,20 @@ stages. The selected GPUs jointly run each distributed training stage. On one
 eight-GPU host, run these commands one after the other; use separate hosts if
 they are launched simultaneously.
 
+
 ```bash
-nohup env TRACE_SEEDS="3407 3408 3409" \
-  TRACE_GPUS="0,1,2,3,4,5,6,7" TRAINABLE_SCOPE=all \
-  TRACE_RUN_ROOT=runs/reproduction/trace_sdft \
-  bash reproduction/run_trace_sdft.sh \
-  > runs/reproduction/trace_sdft.log 2>&1 &
 
 nohup env TRACE_SEEDS="3407 3408 3409" \
   TRACE_GPUS="0,1,2,3,4,5,6,7" TRAINABLE_SCOPE=all \
   TRACE_RUN_ROOT=runs/reproduction/trace_without_sdft \
   bash reproduction/run_trace_without_sdft.sh \
   > runs/reproduction/trace_without_sdft.log 2>&1 &
+  
+nohup env TRACE_SEEDS="3407 3408 3409" \
+  TRACE_GPUS="0,1,2,3,4,5,6,7" TRAINABLE_SCOPE=all \
+  TRACE_RUN_ROOT=runs/reproduction/trace_sdft \
+  bash reproduction/run_trace_sdft.sh \
+  > runs/reproduction/trace_sdft.log 2>&1 &
 ```
 
 Each method exports eight final scores, eight scores when learned, ACC, and
