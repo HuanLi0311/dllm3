@@ -45,7 +45,7 @@ run_seed() {
 
 if (( $# == 0 )); then
     read -r -a trace_seeds <<< "${TRACE_SEEDS:-3407}"
-    if [[ "${TRACE_DRY_RUN:-0}" == 1 || "$parallel_seeds" == 0 ]]; then
+    if [[ "$parallel_seeds" == 0 ]]; then
         for trace_seed in "${trace_seeds[@]}"; do
             run_seed "$trace_seed"
         done
@@ -64,6 +64,7 @@ if (( $# == 0 )); then
         for pid in "${pids[@]}"; do
             wait "$pid" || failed=1
         done
+        trap - INT TERM
         (( failed == 0 )) || exit 1
     fi
     if [[ "${TRACE_DRY_RUN:-0}" != 1 ]]; then
@@ -78,8 +79,9 @@ run=$run_base/seed${seed}
 runner_args=(--task-order canonical)
 
 if [[ "${TRACE_DRY_RUN:-0}" == 1 ]]; then
-    printf 'seed=%s order=canonical methods=%s trainable=%s gpus=%s output=%s\n' \
-        "$seed" "${methods[*]}" "$trainable" "${TRACE_GPUS:-0,1,2,3,4,5,6,7}" "$run"
+    printf 'seed=%s order=canonical methods=%s trainable=%s gpus=%s vllm_memory=%s output=%s\n' \
+        "$seed" "${methods[*]}" "$trainable" "${TRACE_GPUS:-0,1,2,3,4,5,6,7}" \
+        "${TRACE_VLLM_GPU_MEMORY_UTILIZATION:-0.92}" "$run"
     exit 0
 fi
 
