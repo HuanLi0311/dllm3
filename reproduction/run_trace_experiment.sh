@@ -13,7 +13,12 @@ runner=$root/reproduction/trace.py
 model=${TRACE_MODEL:-/home/JJ_Group/lih2511/.cache/huggingface/hub/models--Qwen--Qwen3-4B-Instruct-2507/snapshots/cdbee75f17c01a7cc42f958dc650907174af0554}
 run_base=${TRACE_RUN_ROOT:-$root/runs/reproduction/trace}
 trainable=${TRAINABLE_SCOPE:-all}
+parallel_seeds=${TRACE_PARALLEL_SEEDS:-0}
 case "$trainable" in all|last_block) ;; *) echo "TRAINABLE_SCOPE must be all or last_block" >&2; exit 2 ;; esac
+case "$parallel_seeds" in 0|1) ;; *) echo "TRACE_PARALLEL_SEEDS must be 0 or 1" >&2; exit 2 ;; esac
+if [[ "$parallel_seeds" == 1 ]]; then
+    export TRACE_VLLM_GPU_MEMORY_UTILIZATION=${TRACE_VLLM_GPU_MEMORY_UTILIZATION:-0.32}
+fi
 read -r -a methods <<< "${TRACE_METHODS:-sequential replay sdft opr opr_sc cagd}"
 for method in "${methods[@]}"; do
     case "$method" in
@@ -22,20 +27,45 @@ for method in "${methods[@]}"; do
     esac
 done
 
+run_seed() {
+    local trace_seed=$1 seed_log
+    if [[ "${TRACE_DRY_RUN:-0}" == 1 ]]; then
+        "$0" "$trace_seed"
+        return
+    fi
+    seed_log=$run_base/seed${trace_seed}/orchestrator.log
+    mkdir -p "$(dirname "$seed_log")"
+    {
+        printf 'seed=%s started=%s\n' "$trace_seed" "$(date --iso-8601=seconds)"
+        "$0" "$trace_seed" || return $?
+        printf 'seed=%s result=%s\n' "$trace_seed" "$run_base/seed${trace_seed}/summary.json"
+        "$python" -m json.tool "$run_base/seed${trace_seed}/summary.json"
+    } 2>&1 | tee -a "$seed_log"
+}
+
 if (( $# == 0 )); then
     read -r -a trace_seeds <<< "${TRACE_SEEDS:-3407}"
-    for trace_seed in "${trace_seeds[@]}"; do
-        if [[ "${TRACE_DRY_RUN:-0}" == 1 ]]; then
-            "$0" "$trace_seed"
-            continue
+    if [[ "${TRACE_DRY_RUN:-0}" == 1 || "$parallel_seeds" == 0 ]]; then
+        for trace_seed in "${trace_seeds[@]}"; do
+            run_seed "$trace_seed"
+        done
+    else
+        if (( ${#trace_seeds[@]} > 3 )); then
+            echo "TRACE parallel mode supports at most three full-GPU seeds" >&2
+            exit 2
         fi
-        seed_log=$run_base/seed${trace_seed}/orchestrator.log
-        mkdir -p "$(dirname "$seed_log")"
-        printf 'seed=%s started=%s\n' "$trace_seed" "$(date --iso-8601=seconds)" | tee -a "$seed_log"
-        "$0" "$trace_seed" 2>&1 | tee -a "$seed_log"
-        printf 'seed=%s result=%s\n' "$trace_seed" "$run_base/seed${trace_seed}/summary.json" | tee -a "$seed_log"
-        "$python" -m json.tool "$run_base/seed${trace_seed}/summary.json" | tee -a "$seed_log"
-    done
+        pids=()
+        trap 'kill "${pids[@]}" 2>/dev/null || true' INT TERM
+        for trace_seed in "${trace_seeds[@]}"; do
+            run_seed "$trace_seed" &
+            pids+=("$!")
+        done
+        failed=0
+        for pid in "${pids[@]}"; do
+            wait "$pid" || failed=1
+        done
+        (( failed == 0 )) || exit 1
+    fi
     if [[ "${TRACE_DRY_RUN:-0}" != 1 ]]; then
         "$python" "$runner" summarize-suite --run-root "$run_base" \
             --seeds "${trace_seeds[@]}" --orders canonical
@@ -57,9 +87,13 @@ export CUDA_VISIBLE_DEVICES=${TRACE_GPUS:-0,1,2,3,4,5,6,7}
 nproc=$(awk -F, '{print NF}' <<< "$CUDA_VISIBLE_DEVICES")
 export TOKENIZERS_PARALLELISM=false
 export TORCHINDUCTOR_COMPILE_THREADS=1
-export TRITON_CACHE_DIR=/tmp/trace_opr_cagd_triton_lih2511
+cache_root=${TRACE_CACHE_ROOT:-/tmp/cagd_trace/$(basename "$run_base")}/seed${seed}
+export TRITON_CACHE_DIR=$cache_root/triton
+export TORCH_EXTENSIONS_DIR=$cache_root/torch_extensions
+export TORCHINDUCTOR_CACHE_DIR=$cache_root/torchinductor
+export VLLM_CACHE_ROOT=$cache_root/vllm
 export VLLM_ENABLE_V1_MULTIPROCESSING=0
-mkdir -p "$TRITON_CACHE_DIR" "$run"
+mkdir -p "$TRITON_CACHE_DIR" "$TORCH_EXTENSIONS_DIR" "$TORCHINDUCTOR_CACHE_DIR" "$VLLM_CACHE_ROOT" "$run"
 cd "$root"
 "$python" "$runner" "${runner_args[@]}" self-check
 
