@@ -28,11 +28,6 @@ export TRACE_MODEL=/absolute/path/to/Qwen3-4B-Instruct-2507
 mkdir -p runs/reproduction
 ```
 
-`fsspec` is pinned to the upper bound required by `datasets==3.6.0`.
-`evaluate.load("sari")` dynamically imports `sacrebleu` and `sacremoses`;
-both are also pinned explicitly rather than relying on unrelated packages to
-install them transitively.
-
 ## Paper experiments, excluding TRACE
 
 This launcher runs all 11 figure/table experiment groups, including training,
