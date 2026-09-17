@@ -15,4 +15,6 @@ evaluate==0.4.6
 rouge-score==0.1.2
 fuzzywuzzy==0.18.0
 python-Levenshtein==0.27.4
+sacrebleu==2.5.1
+sacremoses==0.2.0
 matplotlib==3.10.9

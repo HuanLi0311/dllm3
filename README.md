@@ -2,24 +2,63 @@
 
 ## Environment
 
-Run commands from this directory. SMDM uses Python 3.9.25 / PyTorch 2.4.1
-(CUDA 12.1), with dependencies in `requirements.txt`. Qwen and TRACE use
-Python 3.10.21 / PyTorch 2.8.0 (CUDA 12.8), with dependencies in
-`requirements-qwen.txt`. Keep the two environments separate.
+Run commands from this directory and keep the SMDM and Qwen environments
+separate.
+
+### Table 5 / TRACE environment
+
+The reference environment is the one used for Table 5: Linux, Python 3.10.21,
+PyTorch 2.8.0 with CUDA 12.8, Transformers 4.57.6, vLLM 0.11.0, and eight
+NVIDIA A100 PCIe 40GB GPUs. `requirements-qwen.txt` pins the tested Python
+packages. A newer GPU may be used, but it is not the Table 5 reference
+hardware; its NVIDIA driver must support the CUDA 12.8 wheels.
+
+Create a clean environment and point both TRACE launchers to it:
 
 ```bash
+conda create -n cagd-trace python=3.10.21 -y
+conda activate cagd-trace
+python -m pip install -r requirements-qwen.txt
+
+export PYTHONNOUSERSITE=1
+export PAPER_PYTHON="$CONDA_PREFIX/bin/python"
+export AR_PYTHON="$PAPER_PYTHON"
+export PAPER_TORCHRUN="$CONDA_PREFIX/bin/torchrun"
+export TRACE_MODEL=/absolute/path/to/Qwen3-4B-Instruct-2507
+mkdir -p runs/reproduction
+```
+
+The retained local Table 5 environment can instead be selected directly:
+
+```bash
+export PYTHONNOUSERSITE=1
 export PAPER_PYTHON=/home/JJ_Group/lih2511/.conda/envs/opr/bin/python
 export AR_PYTHON="$PAPER_PYTHON"
-export SMDM_PYTHON=/home/JJ_Group/lih2511/.conda/envs/smdm-baseline/bin/python
 export PAPER_TORCHRUN=/home/JJ_Group/lih2511/.conda/envs/opr/bin/torchrun
+export TRACE_MODEL=/home/JJ_Group/lih2511/.cache/huggingface/hub/models--Qwen--Qwen3-4B-Instruct-2507/snapshots/cdbee75f17c01a7cc42f958dc650907174af0554
 mkdir -p runs/reproduction
+```
+
+`evaluate.load("sari")` dynamically imports `sacrebleu` and `sacremoses`;
+both are pinned explicitly rather than relying on unrelated packages to
+install them transitively.
+
+### SMDM environment
+
+The experiments using SMDM require Python 3.9.25 and PyTorch 2.4.1 with CUDA
+12.1 from `requirements.txt`. They are not used by the TRACE launchers.
+
+```bash
+conda create -n cagd-smdm python=3.9.25 -y
+conda activate cagd-smdm
+python -m pip install -r requirements.txt
+export SMDM_PYTHON="$CONDA_PREFIX/bin/python"
 ```
 
 Checkpoint profiles are in `reproduction/suite_common.py`; tokenizer and
 locked datasets are retained in `tokenizer/`, `third_party/SMDM/data/`,
 `runs/data/`, and `data/trace_opr/`. On another machine, set the interpreter
-paths above and the checkpoint paths in the profiles. TRACE accepts
-`TRACE_MODEL=/absolute/checkpoint/path` independently.
+and checkpoint paths above and update the profiles for non-TRACE experiments.
 
 ## Paper experiments, excluding TRACE
 
@@ -59,7 +98,9 @@ An individual figure/table can be launched with, for example:
 
 The large experiment is split into SDFT and the other five methods. Both
 launchers run seeds 3407, 3408, and 3409 sequentially over the eight canonical
-stages. The selected GPUs jointly run each distributed training stage.
+stages. The selected GPUs jointly run each distributed training stage. On one
+eight-GPU host, run these commands one after the other; use separate hosts if
+they are launched simultaneously.
 
 ```bash
 nohup env TRACE_GPUS="0,1,2,3,4,5,6,7" TRAINABLE_SCOPE=all \
