@@ -28,40 +28,6 @@ export TRACE_MODEL=/absolute/path/to/Qwen3-4B-Instruct-2507
 mkdir -p runs/reproduction
 ```
 
-## Paper experiments, excluding TRACE
-
-This launcher runs all 11 figure/table experiment groups, including training,
-evaluation, and `summary.json` generation. Each group exports all its required
-metrics and per-seed results, with means, SEMs, and paired differences where
-multiple seeds are specified.
-
-```bash
-nohup env PAPER_SEEDS="3407 3408 3409" PAPER_GPUS="0 1 2 3 4 5 6 7" \
-  TRAINABLE_SCOPE=all SMDM_MODELS="smdm_219m" \
-  QWEN_MODELS="qwen3_0.6b qwen3_1.7b" \
-  PAPER_RUN_ROOT=runs/reproduction/paper_full \
-  bash reproduction/run_all_paper_experiments.sh \
-  > runs/reproduction/paper_full.log 2>&1 &
-```
-
-`TRAINABLE_SCOPE=all` updates all parameters; `last_block` updates only the
-last block; `reported` uses full SMDM and last-block Qwen adaptation.
-`SMDM_MODELS` and `QWEN_MODELS` select scale-study checkpoints; defaults include
-SMDM-219M/1.14B and Qwen3-0.6B/1.7B/4B. Set `PRIMARY_SMDM_MODEL` and
-`PRIMARY_QWEN_MODEL` for single-checkpoint studies, and `NATURAL_SMDM_MODELS`
-and `NATURAL_QWEN_MODELS` for the Dolly study. Anchor-budget and qualitative
-groups use seed 3407 by default; `ANCHOR_SEEDS` and `QUALITATIVE_SEED` override
-these. Set `RESUME=1` to reuse completed cells in the same run directory;
-otherwise use a new directory to avoid overwriting results.
-
-An individual figure/table can be launched with, for example:
-
-```bash
-"$PAPER_PYTHON" -m reproduction.table_cagd_main \
-  --run-root runs/reproduction/main_only --seeds "3407 3408 3409" \
-  --gpus "0 1 2 3 4 5 6 7" --trainable all --model smdm_219m
-```
-
 ## TRACE large experiment: training and evaluation
 
 The large experiment is split into SDFT and the other five methods. Both
