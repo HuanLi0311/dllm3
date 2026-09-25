@@ -107,22 +107,21 @@ def _collect_test_gradients(model, rows, parameters, pad_id, device, seed, args)
     return vectors
 
 
-def _geometry(fisher: dict, test: torch.Tensor) -> dict:
+def _geometry(fisher: dict, test: torch.Tensor, chunk_size: int = TRACE_CHUNK) -> dict:
     direction = fisher["direction"].double()
     diagonal = fisher["diagonal"].double()
     coefficient = float(fisher["coefficient"])
     count, width = test.shape
     gram = torch.zeros((count, count), dtype=torch.float64)
     test_diagonal = torch.zeros(width, dtype=torch.float64)
-    test_projection_sq = 0.0
-    for left in range(0, width, TRACE_CHUNK):
-        right = min(left + TRACE_CHUNK, width)
+    test_projections = torch.zeros(count, dtype=torch.float64)
+    for left in range(0, width, chunk_size):
+        right = min(left + chunk_size, width)
         block = test[:, left:right].double()
         gram.addmm_(block, block.T)
         test_diagonal[left:right] = block.square().mean(dim=0)
-        projections = block @ direction[left:right]
-        test_projection_sq += float(projections.square().sum())
-    test_projection_sq /= count
+        test_projections.addmv_(block, direction[left:right])
+    test_projection_sq = float(test_projections.square().mean())
     fisher_norm_sq = (gram / count).square().sum()
     direction_norm_sq = direction.square().sum()
     rank1_error_sq = (
@@ -486,7 +485,9 @@ def _self_check() -> None:
     direction = mean / mean.norm()
     coefficient = (calibration @ direction).square().mean()
     diagonal = calibration.square().mean(dim=0)
-    actual = _geometry({"direction": direction, "coefficient": coefficient, "diagonal": diagonal}, test)
+    actual = _geometry(
+        {"direction": direction, "coefficient": coefficient, "diagonal": diagonal}, test, chunk_size=2
+    )
     ftest = test.double().T @ test.double() / len(test)
     rank1 = coefficient.double() * torch.outer(direction.double(), direction.double())
     diag = torch.diag(diagonal.double())
