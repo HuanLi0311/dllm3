@@ -157,6 +157,7 @@ def _run_cell(cell: Cell, gpu: str, resume: bool) -> str:
         retryable = any(marker in failure for marker in (
             "partially initialized module 'multiprocessing'",
             "No module named 'email.",
+            "No module named 'http.",
             "No module named 'json.",
             "No module named 'unittest.",
         ))
