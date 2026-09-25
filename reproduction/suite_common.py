@@ -24,7 +24,10 @@ SMDM_PYTHON = Path(os.environ.get(
     "SMDM_PYTHON",
     PYTHON if "PAPER_PYTHON" in os.environ else "/home/JJ_Group/lih2511/.conda/envs/smdm-baseline/bin/python",
 ))
-SMDM_MODULES = {"smdm_factual", "smdm_natural", "smdm_gsm8k", "smdm_parameter_controls"}
+SMDM_MODULES = {
+    "smdm_factual", "smdm_natural", "smdm_gsm8k", "smdm_gsm8k_soft_targets",
+    "smdm_parameter_controls",
+}
 
 SMDM_MODELS = {
     "smdm_219m": {
