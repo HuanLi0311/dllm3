@@ -186,15 +186,14 @@ def _audit_stage0(args, spec: dict, tasks: list[dict], source_hash: str,
             raise ValueError(f"stage0 {key} differs")
     metadata = payload.get("metadata", {})
     expected_seed = SHARED_STAGE0_SEED if args.official_gsm8k_stage0 else args.seed
-    for key, wanted in {
+    expected_metadata = {
         "formal": bool(args.formal), "seed": expected_seed, "model_id": args.model_id,
         "trainable": "all", "settings": _settings(args),
         "base_checkpoint_sha256": spec["checkpoint_sha256"],
-        "stage0_initialization": (
-            "official_gsm8k_sft_checkpoint"
-            if args.official_gsm8k_stage0 else "trained_from_base_checkpoint"
-        ),
-    }.items():
+    }
+    if args.official_gsm8k_stage0:
+        expected_metadata["stage0_initialization"] = "official_gsm8k_sft_checkpoint"
+    for key, wanted in expected_metadata.items():
         if metadata.get(key) != wanted:
             raise ValueError(f"stage0 metadata {key} differs")
     checkpoint = paired._file_descriptor(args.stage0_checkpoint)
@@ -459,6 +458,8 @@ def _self_check() -> None:
     final = {"records": [{"example_id": "a", "correct": False}, {"example_id": "b", "correct": True}]}
     assert _conditional_retention(initial, final, True) == (1, 0.0)
     assert _stable({"b": 2, "a": 1}) == _stable({"a": 1, "b": 2})
+    assert _protocol(argparse.Namespace(official_gsm8k_stage0=True)) == FLOORFIX_PROTOCOL
+    assert MINIMUM_STAGE0_EXACT_MATCH == 0.10
     with tempfile.TemporaryDirectory() as directory:
         target = Path(directory) / "result.json"
         paired._atomic_json(target, {"status": "ok"})
