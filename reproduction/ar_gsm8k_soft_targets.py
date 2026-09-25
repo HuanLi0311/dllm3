@@ -21,9 +21,6 @@ if str(ROOT) not in sys.path:
 
 from reproduction.ar_factual import _evaluate, _generate_replay, _select_parameters, _set_seed, _stable_hash  # noqa: E402
 from reproduction.ar_gsm8k import (  # noqa: E402
-    DOLLY,
-    GSM_TEST,
-    GSM_TRAIN,
     LOCKED_HASHES,
     _benchmark,
     _extract_answer,
@@ -62,6 +59,17 @@ SETTINGS = {
 
 def _dependencies() -> dict[str, str]:
     return {str(path.relative_to(ROOT)): _sha256(path) for path in DEPENDENCIES}
+
+
+def _settings(args) -> dict[str, object]:
+    return {key: getattr(args, key) for key in SETTINGS}
+
+
+def _assert_sources(source_hash: str, protocol_hash: str, dependencies: dict) -> None:
+    if (_sha256(Path(__file__)), _sha256(PROTOCOL), _dependencies()) != (
+        source_hash, protocol_hash, dependencies
+    ):
+        raise RuntimeError("runner, protocol, or dependency changed during execution")
 
 
 def _tree_descriptor(path: Path) -> dict[str, object]:
@@ -126,9 +134,10 @@ def _validate(args) -> None:
         errors.append("model snapshot differs")
     elif _model_inventory(args.model)["sha256"] != MODEL_INVENTORY_SHA256:
         errors.append("model inventory differs")
-    for key, wanted in SETTINGS.items():
-        if getattr(args, key) != wanted:
-            errors.append(f"{key}={getattr(args, key)!r}, expected {wanted!r}")
+    if args.formal:
+        for key, wanted in SETTINGS.items():
+            if getattr(args, key) != wanted:
+                errors.append(f"{key}={getattr(args, key)!r}, expected {wanted!r}")
     for path, wanted in LOCKED_HASHES.items():
         if not path.is_file() or _sha256(path) != wanted:
             errors.append(f"data hash differs: {path}")
@@ -190,7 +199,7 @@ def _audit_stage0(args, tasks: list[dict], source_hash: str, protocol_hash: str,
     for key, wanted in {
         "seed": args.seed,
         "trainable": "all",
-        "settings": SETTINGS,
+        "settings": _settings(args),
         "model_inventory_sha256": MODEL_INVENTORY_SHA256,
     }.items():
         if metadata.get(key) != wanted:
@@ -246,6 +255,7 @@ def _stage0(args, source_hash: str, protocol_hash: str, dependencies: dict) -> d
         model, anchors, pad_id, device, args.generation_batch_size, args.replay_max_new_tokens
     )
     _audit_benchmark(benchmark, tasks[0]["eval"][:args.benchmark_limit or None])
+    _assert_sources(source_hash, protocol_hash, dependencies)
     checkpoint = _save_checkpoint(model, args.stage0_checkpoint)
     payload = {
         "schema_version": 1,
@@ -259,14 +269,15 @@ def _stage0(args, source_hash: str, protocol_hash: str, dependencies: dict) -> d
         "dependency_sha256": dependencies,
         "data_sha256": {str(path.relative_to(ROOT)): _sha256(path) for path in LOCKED_HASHES},
         "metadata": {
-            "protocol": "qwen_gsm8k_soft_targets_v1",
+            "formal": bool(args.formal),
+            "protocol": "qwen_gsm8k_soft_targets_v1" if args.formal else "development",
             "seed": args.seed,
             "model": str(args.model.resolve()),
             "model_inventory_sha256": MODEL_INVENTORY_SHA256,
             "trainable": "all",
             "trainable_names": names,
             "trainable_parameter_count": sum(parameter.numel() for parameter in parameters),
-            "settings": SETTINGS,
+            "settings": _settings(args),
         },
         "training": training,
         "benchmark": benchmark,
@@ -280,6 +291,7 @@ def _stage0(args, source_hash: str, protocol_hash: str, dependencies: dict) -> d
             "cuda_peak_reserved_bytes": torch.cuda.max_memory_reserved(device),
         },
     }
+    _assert_sources(source_hash, protocol_hash, dependencies)
     _atomic_json(args.output, payload)
     return payload
 
@@ -349,7 +361,8 @@ def _branch(args, source_hash: str, protocol_hash: str, dependencies: dict) -> d
         "dependency_sha256": dependencies,
         "data_sha256": canonical["data_sha256"],
         "metadata": {
-            "protocol": "qwen_gsm8k_soft_targets_v1",
+            "formal": bool(args.formal),
+            "protocol": "qwen_gsm8k_soft_targets_v1" if args.formal else "development",
             "method": args.method,
             "seed": args.seed,
             "task_sequence": ["gsm8k", "summarization"],
@@ -358,7 +371,7 @@ def _branch(args, source_hash: str, protocol_hash: str, dependencies: dict) -> d
             "trainable": "all",
             "trainable_names": names,
             "trainable_parameter_count": sum(parameter.numel() for parameter in parameters),
-            "settings": SETTINGS,
+            "settings": _settings(args),
             "canonical_stage0_json": str(args.stage0_json.resolve()),
             "canonical_stage0_json_sha256": _sha256(args.stage0_json),
             "canonical_stage0_checkpoint": checkpoint,
@@ -378,6 +391,7 @@ def _branch(args, source_hash: str, protocol_hash: str, dependencies: dict) -> d
     }
     if not all(math.isfinite(value) for value in summary.values()):
         raise RuntimeError("non-finite endpoint")
+    _assert_sources(source_hash, protocol_hash, dependencies)
     _atomic_json(args.output, result)
     return result
 
@@ -391,10 +405,7 @@ def run(args) -> dict:
         result = (_stage0 if args.mode == "stage0" else _branch)(
             args, source_hash, protocol_hash, dependencies
         )
-        if (_sha256(Path(__file__)), _sha256(PROTOCOL), _dependencies()) != (
-            source_hash, protocol_hash, dependencies
-        ):
-            raise RuntimeError("runner, protocol, or dependency changed during execution")
+        _assert_sources(source_hash, protocol_hash, dependencies)
         print(json.dumps({"status": "ok", "mode": args.mode, "output": str(args.output),
                           "summary": result.get("summary")}, indent=2))
         return result
