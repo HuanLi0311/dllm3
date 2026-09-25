@@ -28,6 +28,13 @@ METHODS = ("hard_replay", "cagd")
 MODELS = ("smdm_219m", "smdm_1.14b")
 SEEDS = (3407, 3408, 3409)
 PROTOCOL = ROOT / "report/smdm_gsm8k_soft_targets_protocol.md"
+FLOORFIX_PROTOCOL = ROOT / "report/smdm_gsm8k_soft_targets_floorfix_protocol.md"
+OFFICIAL_GSM8K_CHECKPOINT = (
+    ROOT.parent / "checkpoints/mdm_safetensors/mdm-1028M-3300e18-rsl-gsm8k.safetensors"
+)
+OFFICIAL_GSM8K_SHA256 = "1e968c26419d5b041adf3b1825e6d2b10887c45cdab76e60ea2d8341df31618f"
+SHARED_STAGE0_SEED = 3407
+MINIMUM_STAGE0_EXACT_MATCH = 0.10
 DEPENDENCIES = (*scale.DEPENDENCIES, Path(paired.__file__).resolve(), Path(scale.__file__).resolve())
 
 
@@ -55,14 +62,18 @@ def _settings(args) -> dict[str, object]:
     return scale._actual_settings(args, "smdm")
 
 
-def _assert_sources(source_hash: str, protocol_hash: str, dependencies: dict) -> None:
-    if (scale._sha256(Path(__file__)), scale._sha256(PROTOCOL), _dependencies()) != (
+def _protocol(args) -> Path:
+    return FLOORFIX_PROTOCOL if args.official_gsm8k_stage0 else PROTOCOL
+
+
+def _assert_sources(source_hash: str, protocol: Path, protocol_hash: str, dependencies: dict) -> None:
+    if (scale._sha256(Path(__file__)), scale._sha256(protocol), _dependencies()) != (
         source_hash, protocol_hash, dependencies
     ):
         raise RuntimeError("runner, protocol, or dependency changed during execution")
 
 
-def _validate(args, spec: dict) -> None:
+def _validate(args, spec: dict, protocol: Path) -> None:
     errors = []
     if args.model_id not in MODELS or spec["backend"] != "smdm":
         errors.append("runner accepts only SMDM-219M and SMDM-1.14B")
@@ -78,7 +89,7 @@ def _validate(args, spec: dict) -> None:
         errors.append("custom GSM8K training file is missing")
     if args.gsm_train_limit < 0:
         errors.append("gsm_train_limit must be non-negative")
-    if not PROTOCOL.is_file() or not PROTOCOL.read_text().startswith(
+    if not protocol.is_file() or not protocol.read_text().startswith(
         "# SMDM GSM8K soft-target intervention\n\nStatus: frozen\n"
     ):
         errors.append("protocol is not frozen")
@@ -89,6 +100,17 @@ def _validate(args, spec: dict) -> None:
     for path, wanted in scale.DATA_HASHES.items():
         if not path.is_file() or scale._sha256(path) != wanted:
             errors.append(f"data hash differs: {path}")
+    if args.official_gsm8k_stage0:
+        if args.model_id != "smdm_1.14b":
+            errors.append("official GSM8K stage0 is only defined for SMDM-1.14B")
+        if args.gsm_train is not None or args.gsm_train_limit:
+            errors.append("official GSM8K stage0 uses the frozen standard replay prompts")
+        if args.mode == "stage0" and args.seed != SHARED_STAGE0_SEED:
+            errors.append(f"shared stage0 seed must be {SHARED_STAGE0_SEED}")
+        if args.stage0_checkpoint is None or args.stage0_checkpoint.resolve() != OFFICIAL_GSM8K_CHECKPOINT.resolve():
+            errors.append("stage0 checkpoint must be the frozen official GSM8K-SFT checkpoint")
+        elif not OFFICIAL_GSM8K_CHECKPOINT.is_file() or scale._sha256(OFFICIAL_GSM8K_CHECKPOINT) != OFFICIAL_GSM8K_SHA256:
+            errors.append("official GSM8K-SFT checkpoint differs")
     if args.formal:
         locked = {**scale.COMMON_FORMAL_SETTINGS, **scale.SMDM_FORMAL_SETTINGS}
         locked["generation_batch_size"] = 8
@@ -163,10 +185,15 @@ def _audit_stage0(args, spec: dict, tasks: list[dict], source_hash: str,
         if payload.get(key) != wanted:
             raise ValueError(f"stage0 {key} differs")
     metadata = payload.get("metadata", {})
+    expected_seed = SHARED_STAGE0_SEED if args.official_gsm8k_stage0 else args.seed
     for key, wanted in {
-        "formal": bool(args.formal), "seed": args.seed, "model_id": args.model_id,
+        "formal": bool(args.formal), "seed": expected_seed, "model_id": args.model_id,
         "trainable": "all", "settings": _settings(args),
         "base_checkpoint_sha256": spec["checkpoint_sha256"],
+        "stage0_initialization": (
+            "official_gsm8k_sft_checkpoint"
+            if args.official_gsm8k_stage0 else "trained_from_base_checkpoint"
+        ),
     }.items():
         if metadata.get(key) != wanted:
             raise ValueError(f"stage0 metadata {key} differs")
@@ -175,6 +202,8 @@ def _audit_stage0(args, spec: dict, tasks: list[dict], source_hash: str,
         raise ValueError("stage0 checkpoint differs")
     expected = tasks[0]["eval"][:args.benchmark_limit or None]
     _audit_benchmark(payload.get("benchmark", {}), expected)
+    if args.official_gsm8k_stage0 and payload["benchmark"]["exact_match"] < MINIMUM_STAGE0_EXACT_MATCH:
+        raise ValueError("shared stage0 GSM8K exact match is below the 10% floor")
     replay = payload.get("replay_rows")
     anchors = tasks[0]["train"][:args.replay_per_task]
     if not isinstance(replay, list) or len(replay) != len(anchors) or payload.get("replay_sha256") != _stable(replay):
@@ -185,7 +214,8 @@ def _audit_stage0(args, spec: dict, tasks: list[dict], source_hash: str,
     return payload, checkpoint
 
 
-def _stage0(args, spec: dict, source_hash: str, protocol_hash: str, dependencies: dict) -> dict:
+def _stage0(args, spec: dict, source_hash: str, protocol: Path,
+            protocol_hash: str, dependencies: dict) -> dict:
     import torch
     import transformers
     from reproduction.smdm_backend import set_seed
@@ -196,10 +226,23 @@ def _stage0(args, spec: dict, source_hash: str, protocol_hash: str, dependencies
     device, tokenizer, tasks, model, parameters = _load_context(args, spec)
     torch.cuda.reset_peak_memory_stats(device)
     pad_id = int(tokenizer.eos_token_id)
-    training = _train_stage(
-        model, tasks[0]["train"], parameters, pad_id, device, args,
-        args.seed + 1000, teacher=None, replay_rows=[], replay_objective=None,
-    )
+    if args.official_gsm8k_stage0:
+        from safetensors.torch import load_file
+
+        state = load_file(str(OFFICIAL_GSM8K_CHECKPOINT), device="cpu")
+        model.load_state_dict(state, strict=True)
+        del state
+        training = {
+            "steps": 0,
+            "wall_time_seconds": 0.0,
+            "source": "official_gsm8k_sft_checkpoint",
+            "source_checkpoint_sha256": OFFICIAL_GSM8K_SHA256,
+        }
+    else:
+        training = _train_stage(
+            model, tasks[0]["train"], parameters, pad_id, device, args,
+            args.seed + 1000, teacher=None, replay_rows=[], replay_objective=None,
+        )
     torch.cuda.empty_cache()
     benchmark_rows = tasks[0]["eval"][:args.benchmark_limit or None]
     benchmark = scale._benchmark(model, benchmark_rows, tokenizer, device, args)
@@ -209,8 +252,14 @@ def _stage0(args, spec: dict, source_hash: str, protocol_hash: str, dependencies
         args.replay_steps, args.replay_max_new_tokens, args.replay_cfg, False,
     )
     _audit_benchmark(benchmark, benchmark_rows)
-    _assert_sources(source_hash, protocol_hash, dependencies)
-    checkpoint = paired._atomic_checkpoint(args.stage0_checkpoint, model)
+    if args.official_gsm8k_stage0 and benchmark["exact_match"] < MINIMUM_STAGE0_EXACT_MATCH:
+        raise RuntimeError("official GSM8K-SFT checkpoint did not clear the 10% behavior floor")
+    _assert_sources(source_hash, protocol, protocol_hash, dependencies)
+    checkpoint = (
+        paired._file_descriptor(args.stage0_checkpoint)
+        if args.official_gsm8k_stage0
+        else paired._atomic_checkpoint(args.stage0_checkpoint, model)
+    )
     payload = {
         "schema_version": 1,
         "status": "ok",
@@ -225,7 +274,11 @@ def _stage0(args, spec: dict, source_hash: str, protocol_hash: str, dependencies
         "tokenizer_sha256": scale._tree_sha256(scale.TOKENIZER),
         "metadata": {
             "formal": bool(args.formal),
-            "protocol": "smdm_gsm8k_soft_targets_v1" if args.formal else "development",
+            "protocol": (
+                "smdm_gsm8k_soft_targets_floorfix_v1"
+                if args.formal and args.official_gsm8k_stage0
+                else "smdm_gsm8k_soft_targets_v1" if args.formal else "development"
+            ),
             "model_id": args.model_id,
             "model_display_name": spec["display_name"],
             "seed": args.seed,
@@ -235,6 +288,10 @@ def _stage0(args, spec: dict, source_hash: str, protocol_hash: str, dependencies
             "trainable": "all",
             "trainable_parameter_count": sum(parameter.numel() for parameter in parameters),
             "settings": _settings(args),
+            "stage0_initialization": (
+                "official_gsm8k_sft_checkpoint"
+                if args.official_gsm8k_stage0 else "trained_from_base_checkpoint"
+            ),
         },
         "training": training,
         "benchmark": benchmark,
@@ -248,12 +305,13 @@ def _stage0(args, spec: dict, source_hash: str, protocol_hash: str, dependencies
             "cuda_peak_reserved_bytes": torch.cuda.max_memory_reserved(device),
         },
     }
-    _assert_sources(source_hash, protocol_hash, dependencies)
+    _assert_sources(source_hash, protocol, protocol_hash, dependencies)
     paired._atomic_json(args.output, payload)
     return payload
 
 
-def _branch(args, spec: dict, source_hash: str, protocol_hash: str, dependencies: dict) -> dict:
+def _branch(args, spec: dict, source_hash: str, protocol: Path,
+            protocol_hash: str, dependencies: dict) -> dict:
     import torch
     import transformers
     from safetensors.torch import load_file
@@ -327,7 +385,11 @@ def _branch(args, spec: dict, source_hash: str, protocol_hash: str, dependencies
         "tokenizer_sha256": canonical["tokenizer_sha256"],
         "metadata": {
             "formal": bool(args.formal),
-            "protocol": "smdm_gsm8k_soft_targets_v1" if args.formal else "development",
+            "protocol": (
+                "smdm_gsm8k_soft_targets_floorfix_v1"
+                if args.formal and args.official_gsm8k_stage0
+                else "smdm_gsm8k_soft_targets_v1" if args.formal else "development"
+            ),
             "model_id": args.model_id,
             "model_display_name": spec["display_name"],
             "method": args.method,
@@ -358,7 +420,7 @@ def _branch(args, spec: dict, source_hash: str, protocol_hash: str, dependencies
     }
     if not all(math.isfinite(value) for value in summary.values()):
         raise RuntimeError("non-finite endpoint")
-    _assert_sources(source_hash, protocol_hash, dependencies)
+    _assert_sources(source_hash, protocol, protocol_hash, dependencies)
     paired._atomic_json(args.output, result)
     return result
 
@@ -371,15 +433,17 @@ def run(args) -> dict:
     checkpoint_lock = None
     try:
         if args.mode == "stage0":
-            args.stage0_checkpoint.parent.mkdir(parents=True, exist_ok=True)
-            checkpoint_lock = paired._open_lock(args.stage0_checkpoint)
+            if not args.official_gsm8k_stage0:
+                args.stage0_checkpoint.parent.mkdir(parents=True, exist_ok=True)
+                checkpoint_lock = paired._open_lock(args.stage0_checkpoint)
         spec = scale._model_spec(args)
-        _validate(args, spec)
+        protocol = _protocol(args)
+        _validate(args, spec, protocol)
         source_hash = scale._sha256(Path(__file__))
-        protocol_hash = scale._sha256(PROTOCOL)
+        protocol_hash = scale._sha256(protocol)
         dependencies = _dependencies()
         result = (_stage0 if args.mode == "stage0" else _branch)(
-            args, spec, source_hash, protocol_hash, dependencies
+            args, spec, source_hash, protocol, protocol_hash, dependencies
         )
         print(json.dumps({"status": "ok", "mode": args.mode, "output": str(args.output),
                           "summary": result.get("summary"), "resources": result.get("resources")}, indent=2))
@@ -445,6 +509,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--record-eval-loss-every", type=int, default=0)
     parser.add_argument("--device", default="cuda")
     parser.add_argument("--formal", action="store_true")
+    parser.add_argument("--official-gsm8k-stage0", action="store_true")
     parser.add_argument("--self-check", action="store_true")
     args = parser.parse_args()
     if args.self_check:

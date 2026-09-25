@@ -1,6 +1,7 @@
 """Run one matched scale extension of the GSM8K soft-target intervention."""
 
 import json
+from pathlib import Path
 
 from reproduction.suite_common import (
     Cell, QWEN_MODELS, SMDM_MODELS, common_parser, python_command, run_cells,
@@ -40,36 +41,59 @@ def _audit(cells: list[Cell]) -> None:
 def main() -> None:
     parser = common_parser(__doc__)
     parser.add_argument("--model-id", choices=SUPPORTED, required=True)
+    parser.add_argument("--official-gsm8k-stage0", action="store_true")
     args = parser.parse_args()
     if args.trainable == "last_block":
         parser.error("this frozen intervention requires --trainable all (or reported)")
     model = MODELS[args.model_id]
     is_smdm = args.model_id.startswith("smdm")
+    if args.official_gsm8k_stage0 and args.model_id != "smdm_1.14b":
+        parser.error("--official-gsm8k-stage0 requires --model-id smdm_1.14b")
     module = "smdm_gsm8k_soft_targets" if is_smdm else "ar_gsm8k_soft_targets_17b"
+    official_checkpoint = Path(
+        "/home/JJ_Group/lih2511/test/dllm/checkpoints/mdm_safetensors/"
+        "mdm-1028M-3300e18-rsl-gsm8k.safetensors"
+    )
 
     def command(mode, seed, output, checkpoint, method=None, stage0=None):
         common = ["--mode", mode, "--trainable", "all", "--seed", seed,
                   "--output", output, "--stage0-checkpoint", checkpoint, "--formal"]
         common += (["--model-id", args.model_id, "--model-path", model["path"]]
                    if is_smdm else ["--model", model["path"]])
+        if args.official_gsm8k_stage0:
+            common += ["--official-gsm8k-stage0"]
         if method is not None:
             common += ["--method", method, "--stage0-json", stage0]
         return python_command(module, *common)
 
     stage0_cells = []
-    for seed in seeds(args):
-        output = args.run_root / "stage0" / f"s{seed}" / "stage0.json"
-        checkpoint = output.parent / ("model.safetensors" if is_smdm else "model")
+    if args.official_gsm8k_stage0:
+        output = args.run_root / "stage0" / "shared" / "stage0.json"
         stage0_cells.append(Cell(
-            f"stage0-s{seed}", command("stage0", seed, output, checkpoint), output,
-            {"stage": "gsm8k", "seed": seed},
+            "stage0-shared", command("stage0", 3407, output, official_checkpoint), output,
+            {"stage": "gsm8k", "seed": 3407},
         ))
+    else:
+        for seed in seeds(args):
+            output = args.run_root / "stage0" / f"s{seed}" / "stage0.json"
+            checkpoint = output.parent / ("model.safetensors" if is_smdm else "model")
+            stage0_cells.append(Cell(
+                f"stage0-s{seed}", command("stage0", seed, output, checkpoint), output,
+                {"stage": "gsm8k", "seed": seed},
+            ))
     run_cells(stage0_cells, args)
 
     cells = []
     for seed in seeds(args):
-        stage0_json = args.run_root / "stage0" / f"s{seed}" / "stage0.json"
-        checkpoint = stage0_json.parent / ("model.safetensors" if is_smdm else "model")
+        stage0_json = (
+            args.run_root / "stage0" / "shared" / "stage0.json"
+            if args.official_gsm8k_stage0
+            else args.run_root / "stage0" / f"s{seed}" / "stage0.json"
+        )
+        checkpoint = (
+            official_checkpoint if args.official_gsm8k_stage0
+            else stage0_json.parent / ("model.safetensors" if is_smdm else "model")
+        )
         for method in ("hard_replay", "cagd"):
             output = args.run_root / "cells" / method / f"s{seed}.json"
             cells.append(Cell(
