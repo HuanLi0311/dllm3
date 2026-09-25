@@ -10,7 +10,7 @@ run_root="${PAPER_RUN_ROOT:-$root/runs/reproduction/$run_id}"
 seeds="${PAPER_SEEDS:-3407 3408 3409}"
 gpus="${PAPER_GPUS:-0 1 2 3 4 5 6 7}"
 trainable="${TRAINABLE_SCOPE:-reported}"
-experiments="${PAPER_EXPERIMENTS:-table_cagd_main table_cagd_components table_cagd_deployed_components table_cagd_fresh figure_loss_dynamics figure_anchor_budget table_cagd_natural figure_qwen_cagd table_gsm8k_behavior tables_qualitative table_parameter_controls}"
+experiments="${PAPER_EXPERIMENTS:-table_cagd_main table_cagd_components table_cagd_deployed_components table_cagd_fresh figure_loss_dynamics figure_anchor_budget table_cagd_natural figure_qwen_cagd table_gsm8k_behavior table_gsm8k_soft_targets tables_qualitative table_parameter_controls}"
 smdm_models="${SMDM_MODELS:-smdm_219m smdm_1.14b}"
 qwen_models="${QWEN_MODELS:-qwen3_0.6b qwen3_1.7b qwen3_4b}"
 primary_smdm="${PRIMARY_SMDM_MODEL:-smdm_219m}"
@@ -44,6 +44,7 @@ run_table figure_anchor_budget --model "$primary_smdm" --seeds "${ANCHOR_SEEDS:-
 run_table table_cagd_natural --smdm-models "$natural_smdm_models" --qwen-models "$natural_qwen_models"
 run_table figure_qwen_cagd --models "$qwen_models"
 run_table table_gsm8k_behavior --smdm-models "$smdm_models" --qwen-models "$qwen_models"
+run_table table_gsm8k_soft_targets
 run_table tables_qualitative --model "$primary_qwen" --seeds "${QUALITATIVE_SEED:-3407}"
 run_table table_parameter_controls --models "$smdm_models"
 
