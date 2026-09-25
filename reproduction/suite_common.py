@@ -26,7 +26,7 @@ SMDM_PYTHON = Path(os.environ.get(
 ))
 SMDM_MODULES = {
     "smdm_factual", "smdm_natural", "smdm_gsm8k", "smdm_gsm8k_soft_targets",
-    "smdm_parameter_controls",
+    "smdm_parameter_controls", "slice_fidelity_forgetting",
 }
 
 SMDM_MODELS = {
