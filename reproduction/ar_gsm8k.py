@@ -76,9 +76,15 @@ def _gsm_prompt(question: str) -> str:
     return f"Question: {question.strip()}\nAnswer:"
 
 
-def _raw_gsm() -> tuple[list[dict], list[dict]]:
+def _raw_gsm(train_path: Path | None = None, train_limit: int = 0) -> tuple[list[dict], list[dict]]:
+    if train_limit < 0:
+        raise ValueError("train_limit must be non-negative")
+    train_path = train_path or GSM_TRAIN
     train = []
-    for index, line in enumerate(GSM_TRAIN.read_text().split("\n")):
+    with train_path.open() as handle:
+        lines = handle if not train_limit else __import__("itertools").islice(handle, train_limit)
+        lines = list(lines)
+    for index, line in enumerate(lines):
         if not line.strip():
             continue
         question, answer = line.split("||", 1)

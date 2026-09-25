@@ -254,7 +254,12 @@ def _load_context(args, spec: dict):
     tokenizer = AutoTokenizer.from_pretrained(
         base.TOKENIZER, local_files_only=True, use_fast=True
     )
-    tasks = base._raw_tasks(tokenizer, args.max_length)
+    tasks = base._raw_tasks(
+        tokenizer,
+        args.max_length,
+        getattr(args, "gsm_train", None),
+        getattr(args, "gsm_train_limit", 0),
+    )
     args.model = spec["config_size"]
     args.checkpoint = spec["path"]
     model = load_model(args, device)

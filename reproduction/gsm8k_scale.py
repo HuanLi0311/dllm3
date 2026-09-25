@@ -263,10 +263,11 @@ def _run_qwen(args, spec: dict, source_hash: str, protocol_hash: str, dependenci
         temporary.unlink(missing_ok=True)
 
 
-def _raw_tasks(tokenizer, max_length: int) -> list[dict]:
+def _raw_tasks(tokenizer, max_length: int, gsm_train_path: Path | None = None,
+               gsm_train_limit: int = 0) -> list[dict]:
     from reproduction.continual_benchmark import encode_benchmark_rows
 
-    gsm_train, gsm_eval = qwen_base._raw_gsm()
+    gsm_train, gsm_eval = qwen_base._raw_gsm(gsm_train_path, gsm_train_limit)
     dolly = [json.loads(line) for line in DOLLY.read_text().splitlines() if line.strip()]
     raw_tasks = [("gsm8k", gsm_train, gsm_eval)]
     for name in TASKS[1:]:
@@ -277,7 +278,9 @@ def _raw_tasks(tokenizer, max_length: int) -> list[dict]:
         ))
     tasks = []
     for task_index, (name, train_raw, eval_raw) in enumerate(raw_tasks):
-        expected_train, expected_eval = (5250, 1319) if name == "gsm8k" else (120, 40)
+        expected_train, expected_eval = (
+            (gsm_train_limit or 5250, 1319) if name == "gsm8k" else (120, 40)
+        )
         if len(train_raw) != expected_train or len(eval_raw) != expected_eval:
             raise ValueError(
                 f"{name}: raw counts {(len(train_raw), len(eval_raw))} differ from "

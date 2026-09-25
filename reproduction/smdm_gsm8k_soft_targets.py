@@ -39,8 +39,16 @@ def _dependencies() -> dict[str, str]:
     return {str(path.relative_to(ROOT)): scale._sha256(path) for path in DEPENDENCIES}
 
 
-def _data_hashes() -> dict[str, str]:
-    return {str(path.relative_to(ROOT)): scale._sha256(path) for path in scale.DATA_HASHES}
+def _data_hashes(args) -> dict[str, str]:
+    hashes = {str(path.relative_to(ROOT)): scale._sha256(path) for path in scale.DATA_HASHES}
+    if args.gsm_train is not None:
+        path = args.gsm_train.resolve()
+        try:
+            name = str(path.relative_to(ROOT))
+        except ValueError:
+            name = str(path)
+        hashes[name] = scale._sha256(path)
+    return hashes
 
 
 def _settings(args) -> dict[str, object]:
@@ -66,6 +74,10 @@ def _validate(args, spec: dict) -> None:
         errors.append("branch requires --stage0-json and --stage0-checkpoint")
     if args.mode == "stage0" and args.stage0_checkpoint is None:
         errors.append("stage0 requires --stage0-checkpoint")
+    if args.gsm_train is not None and not args.gsm_train.is_file():
+        errors.append("custom GSM8K training file is missing")
+    if args.gsm_train_limit < 0:
+        errors.append("gsm_train_limit must be non-negative")
     if not PROTOCOL.is_file() or not PROTOCOL.read_text().startswith(
         "# SMDM GSM8K soft-target intervention\n\nStatus: frozen\n"
     ):
@@ -145,7 +157,7 @@ def _audit_stage0(args, spec: dict, tasks: list[dict], source_hash: str,
         "source_sha256": source_hash,
         "protocol_sha256": protocol_hash,
         "dependency_sha256": dependencies,
-        "data_sha256": _data_hashes(),
+        "data_sha256": _data_hashes(args),
         "tokenizer_sha256": scale._tree_sha256(scale.TOKENIZER),
     }.items():
         if payload.get(key) != wanted:
@@ -209,7 +221,7 @@ def _stage0(args, spec: dict, source_hash: str, protocol_hash: str, dependencies
         "source_sha256": source_hash,
         "protocol_sha256": protocol_hash,
         "dependency_sha256": dependencies,
-        "data_sha256": _data_hashes(),
+        "data_sha256": _data_hashes(args),
         "tokenizer_sha256": scale._tree_sha256(scale.TOKENIZER),
         "metadata": {
             "formal": bool(args.formal),
@@ -406,6 +418,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output", type=Path)
     parser.add_argument("--stage0-json", type=Path)
     parser.add_argument("--stage0-checkpoint", type=Path)
+    parser.add_argument("--gsm-train", type=Path)
+    parser.add_argument("--gsm-train-limit", type=int, default=0)
     parser.add_argument("--steps-per-task", type=int, default=1000)
     parser.add_argument("--batch-size", type=int, default=2)
     parser.add_argument("--eval-batch-size", type=int, default=4)
